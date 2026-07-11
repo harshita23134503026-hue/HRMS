@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import axios from "axios";
-import { BASE_URL } from "../utility/Config";
 import { useNavigate } from "react-router-dom";
-import WaitingForApproval from "./unapprove";
-import { ref, set, get } from "firebase/database";
-import { db } from "../firebase";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { db, auth } from "../firebase";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
 
 const Login = () => {
   const [name, setName] = useState("");
@@ -12,17 +13,16 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [mobile, setMobile] = useState("");
-  // const [companyId, setCompanyId] = useState("");
   const [showPasswordRules, setShowPasswordRules] = useState(false);
   const navigate = useNavigate();
 
-  const [signinemail, setsigninEmail] = useState("test6@gmail.com");
-  const [signinpassword, setsigninPassword] = useState("Test@123");
+  // Default sign-in values for demo purposes
+  const [signinemail, setsigninEmail] = useState("23134503027@gmail.com");
+  const [signinpassword, setsigninPassword] = useState("test3456");
 
   const [form, setForm] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isUnapproved, setIsUnapproved] = useState(false);
 
   // Tab switcher for form view
   const switchToSigninForm = () => {
@@ -35,82 +35,77 @@ const Login = () => {
     setSuccess("");
   };
 
+  // ─── Firebase Sign In ───
   const handleSignin = async (e) => {
     e.preventDefault();
     setError("");
+
     if (!signinemail.trim() || !signinpassword.trim()) {
       setError("Please enter both email and password.");
       return;
     }
+
     try {
-      const res = await axios.post(
-        BASE_URL + "/auth/login",
-        { email: signinemail, password: signinpassword },
-        { withCredentials: true }
+      // Authenticate with Firebase
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        signinemail,
+        signinpassword
       );
-      // Store token in localStorage
-      if (res.data.token) {
-        localStorage.setItem('token', res.data.token);
+      const user = userCredential.user;
+
+      // Fetch user data from Firestore
+      const sanitizedEmail = signinemail.replace(/\./g, "_");
+      const docRef = doc(db, "users", sanitizedEmail);
+      const docSnap = await getDoc(docRef);
+      let userData = {};
+      if (docSnap.exists()) {
+        userData = docSnap.data();
       }
-      // Redirect to dashboard; dashboard route will resolve the right view for directors
+
+      // Construct a token payload for RBAC
+      const payload = {
+        role: userData.role || "Member",
+        companyCode:
+          userData.companyCode || userData.uid || user.uid || sanitizedEmail,
+        email: signinemail,
+        id: userData.uid || user.uid,
+        name: userData.name || user.displayName || "",
+      };
+
+      const token = `offline.${btoa(JSON.stringify(payload))}.signature`;
+
+      // Store token and navigate
+      localStorage.setItem("token", token);
       navigate("/dashboard");
     } catch (err) {
-      // Check if user is awaiting approval
-      if (err?.response?.status === 403 && err?.response?.data?.msg === 'Awaiting admin approval') {
-        setIsUnapproved(true);
-        return;
+      console.error("Firebase sign-in failed:", err);
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/wrong-password" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/invalid-email"
+      ) {
+        setError("Incorrect email or password.");
+      } else if (err.code === "auth/too-many-requests") {
+        setError("Too many failed attempts. Please try again later.");
+      } else {
+        setError(err.message || "Authentication error.");
       }
-
-      // If it's a network/offline error, fallback to Firebase database authentication
-      const isNetworkError = !err.response && (err.message === "Network Error" || err.code === "ERR_NETWORK");
-      if (isNetworkError) {
-        console.warn("Backend server is offline, falling back to Firebase database authentication...");
-        try {
-          const sanitizedEmail = signinemail.replace(/\./g, '_');
-          const snapshot = await get(ref(db, `users/${sanitizedEmail}`));
-          
-          if (snapshot.exists()) {
-            const userData = snapshot.val();
-            if (userData.password === signinpassword) {
-              // Store mock token and navigate
-              localStorage.setItem('token', `mock-firebase-token-${sanitizedEmail}`);
-              navigate("/dashboard");
-              return;
-            } else {
-              setError("Incorrect password.");
-              return;
-            }
-          } else {
-            setError("No account found with this email on Firebase Realtime Database.");
-            return;
-          }
-        } catch (dbErr) {
-          console.error("Firebase auth fallback failed:", dbErr);
-          setError("Database error during offline authentication.");
-          return;
-        }
-      }
-
-      setError(
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Something went wrong"
-      );
     }
   };
 
+  // ─── Firebase Sign Up ───
   const handleSignup = async (e) => {
     e.preventDefault();
     setError("");
-    
+
     if (
       !name.trim() ||
       !email.trim() ||
       !password.trim() ||
       !confirmPassword.trim() ||
-      !mobile.trim() 
-      // !companyId.trim()
+      !mobile.trim()
     ) {
       setError("Please fill all fields before signing up.");
       return;
@@ -122,38 +117,40 @@ const Login = () => {
     }
 
     try {
-      // Save user details to Firebase Realtime Database
-      const sanitizedEmail = email.replace(/\./g, '_');
-      await set(ref(db, `users/${sanitizedEmail}`), {
+      // Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      // Save user details to Cloud Firestore
+      const sanitizedEmail = email.replace(/\./g, "_");
+      await setDoc(doc(db, "users", sanitizedEmail), {
+        uid: user.uid,
         name,
         email,
-        password,
         mobile,
-        createdAt: new Date().toISOString()
+        role: "Member",
+        createdAt: new Date().toISOString(),
       });
 
-      // Attempt to notify backend server (non-blocking)
-      try {
-        await axios.post(
-          BASE_URL + "/user/signup", 
-          { name, email, password, mobile}, 
-          { withCredentials: true }
-        );
-      } catch (backendErr) {
-        console.warn("Backend server not reachable/failed:", backendErr.message);
-      }
-      
-      // Since Firebase write succeeded, proceed to success state
+      // Success
       setSuccess("Account created successfully! Please sign in.");
       setError("");
       switchToSigninForm();
     } catch (err) {
-      setError(
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Something went wrong"
-      );
+      console.error("Firebase sign-up failed:", err);
+      if (err.code === "auth/email-already-in-use") {
+        setError("This email is already registered.");
+      } else if (err.code === "auth/weak-password") {
+        setError("Password is too weak. Use at least 6 characters.");
+      } else if (err.code === "auth/invalid-email") {
+        setError("Please enter a valid email address.");
+      } else {
+        setError(err.message || "Something went wrong");
+      }
     }
   };
 
@@ -167,16 +164,10 @@ const Login = () => {
     setShowPasswordRules(validatePassword(value));
   };
 
-  // Show waiting for approval screen if user is unapproved
-  if (isUnapproved) {
-    return <WaitingForApproval />;
-  }
-
   return (
     <div className="flex h-[100vh]">
       {/* Left Side - Image */}
-
-      <div className="hidden md:flex h-screen w-[50%] items-center justify-center py-4 ">
+      <div className="hidden md:flex h-screen w-[50%] items-center justify-center py-4">
         <div
           className="bg-cover bg-center w-[80%] h-full rounded-4xl flex flex-col justify-between p-4 mr-16"
           style={{ backgroundImage: "url('/imagelogo.jpg')" }}
@@ -208,12 +199,10 @@ const Login = () => {
       </div>
 
       {/* Right Side - Form */}
-
       <div className="hidden md:flex w-[50%] h-screen items-center justify-center p-6">
-        {/*signup form */}
+        {/* Signup form */}
         {form === 1 && (
           <div className="w-full max-w-sm">
-            {/* Logo */}
             <h1 className="text-[#26203B] text-2xl font-bold mb-6">
               TaskFleet
             </h1>
@@ -316,26 +305,12 @@ const Login = () => {
                   onChange={(e) => setMobile(e.target.value)}
                 />
               </div>
-{/* 
-              Company ID
-              <div>
-                <label className="block mb-1 font-medium text-xs text-[#26203B]">
-                  Company ID
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter Company ID"
-                  className="w-full h-[48px] px-3 py-2 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={companyId}
-                  onChange={(e) => setCompanyId(e.target.value)}
-                />
-              </div> */}
 
               <div
-                  className="text-xs text-[#736e88] flex justify-end cursor-pointer hover:underline"
-                  onClick={() => navigate("/orgsetup")}
-                >
-                  Company? 
+                className="text-xs text-[#736e88] flex justify-end cursor-pointer hover:underline"
+                onClick={() => navigate("/orgsetup")}
+              >
+                Company?
               </div>
 
               {/* Error Message */}
@@ -349,7 +324,6 @@ const Login = () => {
               <button
                 type="submit"
                 className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4"
-                onClick={handleSignup}
               >
                 Create Account
               </button>
@@ -394,11 +368,9 @@ const Login = () => {
           </div>
         )}
 
-        {/* Sign In form*/}
-
+        {/* Sign In form */}
         {form === 2 && (
           <div className="w-full max-w-sm">
-            {/* Top Section: Shared */}
             <h1 className="text-[#26203B] text-2xl font-bold mb-6">
               TaskFleet
             </h1>
@@ -419,7 +391,7 @@ const Login = () => {
             </div>
 
             {/* Sign In Form */}
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSignin}>
               {success && (
                 <div className="bg-green-50 border border-green-200 text-green-600 px-3 py-2 rounded text-xs mb-2">
                   {success}
@@ -467,7 +439,6 @@ const Login = () => {
               <button
                 type="submit"
                 className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4"
-                onClick={handleSignin}
               >
                 Login
               </button>

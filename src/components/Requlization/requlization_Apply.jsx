@@ -1,6 +1,4 @@
 import React, { useState, useRef } from 'react';
-import axios from 'axios';
-import { BASE_URL } from '../../utility/Config';
 import {
   ChevronLeft,
   ChevronRight,
@@ -74,32 +72,34 @@ const RegularizationWindow = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmit = async () => {
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      await axios.post(`${BASE_URL}/notifications/requests`, {
+  const handleSubmit = () => {
+    // Validation
+    if (!dateRange.from || !dateRange.to) {
+      alert('Please select a date range');
+      return;
+    }
+
+    // Simulate submission (frontend-only)
+    setSubmitting(true);
+
+    setTimeout(() => {
+      console.log('Regularization request submitted (mock):', {
         requestType: 'regularization_request',
         title: 'Regularization Request',
         fromDate: dateRange.from,
         toDate: dateRange.to,
         description,
         attachmentUrl: attachment?.url || null,
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       setDescription('');
       setAttachment(null);
       setDateRange({ from: '', to: '' });
       if (fileInputRef.current) fileInputRef.current.value = '';
-      alert('Regularization request submitted');
-    } catch (error) {
-      console.error('Regularization submit error:', error);
-      alert(error.response?.data?.msg || 'Failed to submit regularization request');
-    } finally {
+
       setSubmitting(false);
-    }
+      alert('Regularization request submitted');
+    }, 800);
   };
 
   return (
@@ -107,10 +107,10 @@ const RegularizationWindow = () => {
       {/* Main Container with Blue Border */}
       <div className="w-full max-w-7xl bg-white rounded-3xl border-4 border-sky-500 shadow-2xl overflow-hidden">
         <div className="p-6 md:p-10 space-y-8">
-          
+
           {/* ================= TOP SECTION: Calendar + Stats ================= */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            
+
             {/* --- Calendar --- */}
             <div className="lg:col-span-5">
               <div className="flex items-center justify-between mb-6">
@@ -215,7 +215,7 @@ const RegularizationWindow = () => {
           {/* ================= APPLY FORM ================= */}
           {activeTab === 'Apply' && (
             <div className="max-w-5xl mx-auto space-y-6">
-              
+
               {/* Duration Inputs */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">

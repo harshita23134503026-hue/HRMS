@@ -1,10 +1,91 @@
 import React, { useState, useEffect } from "react";
 import Submit from "../Basic/submit";
 import Pagination from "../Basic/pagination";
-import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
-import { BASE_URL } from "../../utility/Config";
-import { mapTaskData, formatDate } from "../../utility/dataMapper";
+
+// ─── Mock Data ───────────────────────────────────────────────
+const CURRENT_USER_ID = "1"; // mock logged-in user
+
+const MOCK_TASKS = [
+  {
+    id: "t1",
+    description: "Design homepage hero section",
+    assignedTo: [{ id: "1", name: "Olivia Martin" }],
+    startDate: "2026-04-10",
+    dueDate: "2026-06-25",
+    status: "In Progress",
+  },
+  {
+    id: "t2",
+    description: "Implement user authentication flow",
+    assignedTo: [{ id: "2", name: "Jackson Lee" }],
+    startDate: "2026-04-05",
+    dueDate: "2026-06-30",
+    status: "In Progress",
+  },
+  {
+    id: "t3",
+    description: "Create color palette & typography guide",
+    assignedTo: [{ id: "3", name: "Sophia Brown" }],
+    startDate: "2026-03-01",
+    dueDate: "2026-03-20",
+    status: "Completed",
+  },
+  {
+    id: "t4",
+    description: "Set up CI/CD pipeline",
+    assignedTo: [{ id: "2", name: "Jackson Lee" }],
+    startDate: "2026-07-01",
+    dueDate: "2026-07-10",
+    status: "Not Started",
+  },
+  {
+    id: "t5",
+    description: "Fix navigation responsiveness on mobile",
+    assignedTo: [{ id: "1", name: "Olivia Martin" }],
+    startDate: "2026-03-15",
+    dueDate: "2026-04-01",
+    status: "In Progress",
+  },
+  {
+    id: "t6",
+    description: "Write API documentation",
+    assignedTo: [{ id: "4", name: "Ethan Wilson" }],
+    startDate: "2026-04-01",
+    dueDate: "2026-04-05",
+    status: "In Progress",
+  },
+  {
+    id: "t7",
+    description: "Conduct usability testing sessions",
+    assignedTo: [{ id: "5", name: "Ava Johnson" }],
+    startDate: "2026-07-05",
+    dueDate: "2026-07-20",
+    status: "Not Started",
+  },
+  {
+    id: "t8",
+    description: "Optimize image assets for web",
+    assignedTo: [{ id: "3", name: "Sophia Brown" }],
+    startDate: "2026-02-10",
+    dueDate: "2026-02-28",
+    status: "Completed",
+  },
+];
+
+// ─── Local date formatter ────────────────────────────────────
+const formatDate = (dateString) => {
+  if (!dateString) return "N/A";
+  try {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return dateString;
+  }
+};
 
 const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   const { projectId: paramProjectId } = useParams();
@@ -19,60 +100,26 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   const [popupTitle, setPopupTitle] = useState("");
   const [popupMode, setPopupMode] = useState("Update");
   const [selectedTask, setSelectedTask] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Frontend-only: mock current user & admin flag
+  const currentUserId = CURRENT_USER_ID;
+  const isAdmin = true;
 
   // ⭐ PAGINATION STATE
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 5;
 
-  // ⭐ GET CURRENT USER ID
+  // ⭐ LOAD MOCK TASKS (simulates fetch delay)
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setCurrentUserId(payload.id || payload._id);
-        setIsAdmin(payload.role === "admin" || payload.role === "sadmin");
-      } catch (err) {
-        console.error("Error parsing token:", err);
-      }
-    }
-  }, []);
+    setLoading(true);
 
-  // ⭐ FETCH TASKS FROM API
-  useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem("token");
-        
-        if (!token || !projectId) {
-          setError("Missing authentication or project ID");
-          setLoading(false);
-          return;
-        }
+    const timer = setTimeout(() => {
+      setTasks(MOCK_TASKS);
+      setError(null);
+      setLoading(false);
+    }, 500);
 
-        const res = await axios.get(`${BASE_URL}/projects/${projectId}/tasks`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        // Map API tasks to frontend format
-        const mappedTasks = (res.data.tasks || res.data || []).map(mapTaskData);
-        setTasks(mappedTasks);
-      } catch (err) {
-        console.error("Error fetching tasks:", err);
-        setError("Failed to load tasks");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (projectId) {
-      fetchTasks();
-    }
+    return () => clearTimeout(timer);
   }, [projectId]);
 
   // ⭐ FILTER TASKS BASED ON taskFilter PROP
@@ -80,43 +127,27 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     let filtered = [...tasks];
 
     if (taskFilter === "me") {
-      // Get user ID from JWT token
-      const token = localStorage.getItem("token");
-      let userId = null;
-      
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split(".")[1]));
-          userId = payload.id || payload._id;
-        } catch (err) {
-          console.error("Error parsing token:", err);
-        }
-      }
-
-      if (userId) {
-        filtered = tasks.filter(
-          (task) =>
-            task.assignedTo &&
-            (Array.isArray(task.assignedTo)
-              ? task.assignedTo.some(user => {
-                  // Handle both user objects and user IDs
-                  if (typeof user === 'object') {
-                    return (user.id || user._id) === userId;
-                  }
-                  return user === userId;
-                })
-              : (typeof task.assignedTo === 'object' 
-                  ? (task.assignedTo.id || task.assignedTo._id) === userId
-                  : task.assignedTo === userId))
-        );
-      }
+      filtered = tasks.filter(
+        (task) =>
+          task.assignedTo &&
+          (Array.isArray(task.assignedTo)
+            ? task.assignedTo.some((user) => {
+                if (typeof user === "object") {
+                  return (user.id || user._id) === currentUserId;
+                }
+                return user === currentUserId;
+              })
+            : typeof task.assignedTo === "object"
+              ? (task.assignedTo.id || task.assignedTo._id) === currentUserId
+              : task.assignedTo === currentUserId)
+      );
     }
 
     setFilteredTasks(filtered);
     setCurrentPage(1); // Reset to first page when filter changes
-  }, [taskFilter, tasks]);
+  }, [taskFilter, tasks, currentUserId]);
 
-  // ⭐ STATUS COLOR MAPPING (matches API status values)
+  // ⭐ STATUS COLOR MAPPING
   const statusColor = {
     Completed: "text-green-600 bg-green-100",
     "In Progress": "text-yellow-600 bg-yellow-100",
@@ -126,7 +157,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
 
   // ⭐ CALCULATE DYNAMIC STATUS BASED ON DATES
   const calculateStatus = (task) => {
-    // If already marked as Completed by admin, keep it Completed
     if (task.status === "Completed") {
       return "Completed";
     }
@@ -137,29 +167,14 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     const startDate = task.startDate ? new Date(task.startDate) : null;
     const dueDate = task.dueDate ? new Date(task.dueDate) : null;
 
-    if (startDate) {
-      startDate.setHours(0, 0, 0, 0);
-    }
-    if (dueDate) {
-      dueDate.setHours(0, 0, 0, 0);
-    }
+    if (startDate) startDate.setHours(0, 0, 0, 0);
+    if (dueDate) dueDate.setHours(0, 0, 0, 0);
 
-    // If start date is in the future → Not Started
-    if (startDate && today < startDate) {
-      return "Not Started";
-    }
-
-    // If due date has passed → Pending
-    if (dueDate && today > dueDate) {
-      return "Pending";
-    }
-
-    // If between start date and due date → In Progress
-    if (startDate && dueDate && today >= startDate && today <= dueDate) {
+    if (startDate && today < startDate) return "Not Started";
+    if (dueDate && today > dueDate) return "Pending";
+    if (startDate && dueDate && today >= startDate && today <= dueDate)
       return "In Progress";
-    }
 
-    // Default to Not Started
     return "Not Started";
   };
 
@@ -175,69 +190,27 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     navigate(`/projects/${projectId}/tasks/${task.id}/updates`, { state: { task } });
   };
 
-  // ⭐ HANDLE TASK ACTIONS (updates vs final submit)
-  const handleSubmitTask = async (taskId, description) => {
-    try {
-      const token = localStorage.getItem("token");
-      
-      if (!token) {
-        console.error("No authentication token");
-        return;
-      }
-
-      const commonHeaders = {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      };
-
-      if (popupMode === "Submit") {
-        // Final submission: mark task as completed AND create an update entry
-        const res = await axios.put(
-          `${BASE_URL}/projects/${projectId}/tasks/${taskId}`,
-          { 
-            status: "Completed",
-            submissionNotes: description,
-          },
-          commonHeaders
-        );
-
-        // Also create an update entry so it appears in the updates history
-        await axios.post(
-          `${BASE_URL}/projects/${projectId}/tasks/${taskId}/updates`,
-          {
-            status: "Completed",
-            note: description,
-            date: new Date(),
-          },
-          commonHeaders
-        );
-
-        // Update local task list to reflect completion
-        setTasks((prevTasks) =>
-          prevTasks.map((task) =>
-            task.id === taskId ? { ...task, status: "Completed" } : task
-          )
-        );
-
-        console.log("Task marked as completed:", res.data);
-      } else {
-        // Regular update: add an update entry without closing the task
-        const currentStatus = selectedTask?.status || "In Progress";
-        await axios.post(
-          `${BASE_URL}/projects/${projectId}/tasks/${taskId}/updates`,
-          {
-            status: currentStatus,
-            note: description,
-            date: new Date(),
-          },
-          commonHeaders
-        );
-        console.log("Task update added");
-      }
-    } catch (err) {
-      console.error("Error submitting task:", err);
+  // ⭐ HANDLE TASK ACTIONS (frontend-only, updates local state)
+  const handleSubmitTask = (taskId, description) => {
+    if (popupMode === "Submit") {
+      // Final submission: mark task as completed locally
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task.id === taskId ? { ...task, status: "Completed" } : task
+        )
+      );
+      console.log("Task marked as completed (mock):", { taskId, description });
+    } else {
+      // Regular update: just log it (updates page uses its own mock data)
+      console.log("Task update added (mock):", {
+        taskId,
+        status: selectedTask?.status || "In Progress",
+        note: description,
+        date: new Date(),
+      });
     }
+
+    setPopupOpen(false);
   };
 
   // ⭐ PAGINATION LOGIC
@@ -248,20 +221,19 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   // ⭐ CHECK IF TASK IS ASSIGNED TO CURRENT USER
   const isTaskAssignedToUser = (task) => {
     if (!currentUserId) return false;
-    
+
     return (
       task.assignedTo &&
       (Array.isArray(task.assignedTo)
-        ? task.assignedTo.some(user => {
-            // Handle both user objects and user IDs
-            if (typeof user === 'object') {
+        ? task.assignedTo.some((user) => {
+            if (typeof user === "object") {
               return (user.id || user._id) === currentUserId;
             }
             return user === currentUserId;
           })
-        : (typeof task.assignedTo === 'object' 
-            ? (task.assignedTo.id || task.assignedTo._id) === currentUserId
-            : task.assignedTo === currentUserId))
+        : typeof task.assignedTo === "object"
+          ? (task.assignedTo.id || task.assignedTo._id) === currentUserId
+          : task.assignedTo === currentUserId)
     );
   };
 
@@ -312,92 +284,90 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
               const assignedToUser = isTaskAssignedToUser(task);
               const canAccessTask = isAdmin || assignedToUser;
               return (
-              <tr
-                key={task.id}
-                className={`bg-white text-sm text-gray-800 rounded-lg shadow-sm`}
-              >
-                <td className="px-4 lg:px-6 py-5 rounded-l-lg">
-                  <button
-                    type="button"
-                    disabled={!canAccessTask}
-                    className={`text-left w-full ${
-                      canAccessTask 
-                        ? "hover:text-blue-600 cursor-pointer" 
-                        : ""
-                    }`}
-                    onClick={() => canAccessTask && goToUpdatesPage(task)}
-                  >
-                    {task.description}
-                  </button>
-                </td>
+                <tr
+                  key={task.id}
+                  className="bg-white text-sm text-gray-800 rounded-lg shadow-sm"
+                >
+                  <td className="px-4 lg:px-6 py-5 rounded-l-lg">
+                    <button
+                      type="button"
+                      disabled={!canAccessTask}
+                      className={`text-left w-full ${
+                        canAccessTask ? "hover:text-blue-600 cursor-pointer" : ""
+                      }`}
+                      onClick={() => canAccessTask && goToUpdatesPage(task)}
+                    >
+                      {task.description}
+                    </button>
+                  </td>
 
-                <td className="px-4 lg:px-6 py-5">
-                  <div className="flex items-center gap-2">
-                    <img
-                      src={`https://i.pravatar.cc/150?img=${Math.abs(
-                        (task.id || "1").toString().charCodeAt(0)
-                      ) % 100}`}
-                      alt="Assignee"
-                      className="w-8 h-8 rounded-full"
-                    />
-                    <span className="truncate">
-                      {Array.isArray(task.assignedTo) && task.assignedTo.length > 0
-                        ? typeof task.assignedTo[0] === "object"
-                          ? task.assignedTo[0]?.name || "Unassigned"
-                          : task.assignedTo[0]
-                        : "Unassigned"}
+                  <td className="px-4 lg:px-6 py-5">
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={`https://i.pravatar.cc/150?img=${Math.abs(
+                          (task.id || "1").toString().charCodeAt(0)
+                        ) % 100}`}
+                        alt="Assignee"
+                        className="w-8 h-8 rounded-full"
+                      />
+                      <span className="truncate">
+                        {Array.isArray(task.assignedTo) && task.assignedTo.length > 0
+                          ? typeof task.assignedTo[0] === "object"
+                            ? task.assignedTo[0]?.name || "Unassigned"
+                            : task.assignedTo[0]
+                          : "Unassigned"}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 lg:px-6 py-5 text-gray-600">
+                    {formatDate(task.startDate)}
+                  </td>
+
+                  <td className="px-4 lg:px-6 py-5 text-gray-600">
+                    {formatDate(task.dueDate)}
+                  </td>
+
+                  <td className="px-4 lg:px-6 py-5">
+                    <span
+                      className={`text-xs font-medium px-2 py-1 border rounded-full ${
+                        statusColor[calculateStatus(task)] || "text-gray-600 bg-gray-100"
+                      }`}
+                    >
+                      {calculateStatus(task)}
                     </span>
-                  </div>
-                </td>
+                  </td>
 
-                <td className="px-4 lg:px-6 py-5 text-gray-600">
-                  {formatDate(task.startDate)}
-                </td>
+                  {/* UPDATE BUTTON */}
+                  <td className="px-4 lg:px-6 py-5">
+                    <button
+                      disabled={!canAccessTask}
+                      onClick={() => canAccessTask && openPopup(task, "Update")}
+                      className={`text-sm px-3 py-1 rounded-full transition ${
+                        canAccessTask
+                          ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
+                          : ""
+                      }`}
+                    >
+                      Updates
+                    </button>
+                  </td>
 
-                <td className="px-4 lg:px-6 py-5 text-gray-600">
-                  {formatDate(task.dueDate)}
-                </td>
-
-                <td className="px-4 lg:px-6 py-5">
-                  <span
-                    className={`text-xs font-medium px-2 py-1 border rounded-full ${
-                      statusColor[calculateStatus(task)] || "text-gray-600 bg-gray-100"
-                    }`}
-                  >
-                    {calculateStatus(task)}
-                  </span>
-                </td>
-
-                {/* UPDATE BUTTON */}
-                <td className="px-4 lg:px-6 py-5">
-                  <button
-                    disabled={!canAccessTask}
-                    onClick={() => canAccessTask && openPopup(task, "Update")}
-                    className={`text-sm px-3 py-1 rounded-full transition ${
-                      canAccessTask
-                        ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
-                        : ""
-                    }`}
-                  >
-                    Updates
-                  </button>
-                </td>
-
-                {/* SUBMIT BUTTON */}
-                <td className="px-4 lg:px-6 py-5">
-                  <button
-                    disabled={!canAccessTask}
-                    onClick={() => canAccessTask && openPopup(task, "Submit")}
-                    className={`text-sm px-3 py-1 rounded-full transition ${
-                      canAccessTask
-                        ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
-                        : ""
-                    }`}
-                  >
-                    Submit
-                  </button>
-                </td>
-              </tr>
+                  {/* SUBMIT BUTTON */}
+                  <td className="px-4 lg:px-6 py-5">
+                    <button
+                      disabled={!canAccessTask}
+                      onClick={() => canAccessTask && openPopup(task, "Submit")}
+                      className={`text-sm px-3 py-1 rounded-full transition ${
+                        canAccessTask
+                          ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
+                          : ""
+                      }`}
+                    >
+                      Submit
+                    </button>
+                  </td>
+                </tr>
               );
             })}
           </tbody>
@@ -412,6 +382,7 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
           onPageChange={setCurrentPage}
         />
       </div>
+
       {/* POPUP */}
       <Submit
         isOpen={popupOpen}

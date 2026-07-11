@@ -1,11 +1,9 @@
 "use client"
 
 import { Plus, Eye, MessageCircle } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import axios from "axios"
-import { BASE_URL } from "../utility/Config"
-import { useRbac } from "./context/RbacContext"
+
 // Define colors directly in the component file
 const colors = {
   backgroundLight: "#f8fafc",
@@ -26,8 +24,8 @@ const colors = {
 
   priorityImportantBg: "#dbeafe",
   priorityImportantText: "#1d4ed8",
-  priorityHighBg: "#fee2e2", // Corrected: Light red for High Priority
-  priorityHighText: "#dc2626", // Corrected: Dark red for High Priority
+  priorityHighBg: "#fee2e2",
+  priorityHighText: "#dc2626",
   priorityMehBg: "#f3f4f6",
   priorityMehText: "#6b7280",
   priorityOkBg: "#fef3c7",
@@ -40,6 +38,109 @@ const colors = {
   avatarCountBg: "#dbeafe",
   avatarCountText: "#1d4ed8",
 }
+
+// ─── Mock Data ───────────────────────────────────────────────
+const avatar = (seed) =>
+  `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(seed)}`
+
+const MOCK_PENDING_PROJECTS = [
+  {
+    id: "p1",
+    title: "Marketing Campaign Q3",
+    priority: "important",
+    progress: 0,
+    status: "pending",
+    team: [avatar("Olivia Martin"), avatar("Jackson Lee")],
+    stats: { views: 120, comments: 4 },
+  },
+  {
+    id: "p2",
+    title: "Mobile App v2.0 Planning",
+    priority: "high priority",
+    progress: 5,
+    status: "pending",
+    team: [avatar("Sophia Brown"), avatar("Ethan Wilson"), avatar("Ava Johnson"), avatar("Liam Davis")],
+    stats: { views: 340, comments: 12 },
+  },
+  {
+    id: "p3",
+    title: "Customer Feedback Survey",
+    priority: "meh",
+    progress: 0,
+    status: "pending",
+    team: [avatar("Ava Johnson")],
+    stats: { views: 45, comments: 1 },
+  },
+]
+
+const MOCK_PROGRESS_PROJECTS = [
+  {
+    id: "pr1",
+    title: "Website Redesign",
+    priority: "important",
+    progress: 68,
+    status: "progress",
+    team: [avatar("Olivia Martin"), avatar("Sophia Brown"), avatar("Ethan Wilson")],
+    stats: { views: 1250, comments: 34 },
+  },
+  {
+    id: "pr2",
+    title: "API Integration Module",
+    priority: "ok",
+    progress: 42,
+    status: "progress",
+    team: [avatar("Jackson Lee"), avatar("Liam Davis")],
+    stats: { views: 560, comments: 18 },
+  },
+  {
+    id: "pr3",
+    title: "Dashboard UI Update",
+    priority: "high priority",
+    progress: 81,
+    status: "progress",
+    team: [avatar("Sophia Brown"), avatar("Ava Johnson"), avatar("Olivia Martin"), avatar("Jackson Lee"), avatar("Ethan Wilson")],
+    stats: { views: 2100, comments: 47 },
+  },
+]
+
+const MOCK_COMPLETED_PROJECTS = [
+  {
+    id: "c1",
+    title: "Brand Identity Refresh",
+    priority: "important",
+    progress: 100,
+    status: "completed",
+    team: [avatar("Sophia Brown"), avatar("Olivia Martin")],
+    stats: { views: 3400, comments: 89 },
+  },
+  {
+    id: "c2",
+    title: "Q1 Sales Report Automation",
+    priority: "ok",
+    progress: 100,
+    status: "completed",
+    team: [avatar("Ethan Wilson"), avatar("Ava Johnson"), avatar("Liam Davis")],
+    stats: { views: 890, comments: 23 },
+  },
+  {
+    id: "c3",
+    title: "Legacy System Migration",
+    priority: "high priority",
+    progress: 100,
+    status: "completed",
+    team: [avatar("Jackson Lee"), avatar("Liam Davis")],
+    stats: { views: 1750, comments: 56 },
+  },
+  {
+    id: "c4",
+    title: "Employee Onboarding Portal",
+    priority: "meh",
+    progress: 100,
+    status: "completed",
+    team: [avatar("Ava Johnson")],
+    stats: { views: 430, comments: 9 },
+  },
+]
 
 // ProjectCard Component
 function ProjectCard({ project, onViewClick }) {
@@ -54,9 +155,9 @@ function ProjectCard({ project, onViewClick }) {
       case "ok":
         return { backgroundColor: colors.priorityOkBg, color: colors.priorityOkText }
       case "not that important":
-        return { backgroundColor: colors.priorityHighBg, color: colors.priorityHighText } // Using high priority red as per image
+        return { backgroundColor: colors.priorityHighBg, color: colors.priorityHighText }
       default:
-        return { backgroundColor: colors.priorityMehBg, color: colors.priorityMehText } // Default to meh
+        return { backgroundColor: colors.priorityMehBg, color: colors.priorityMehText }
     }
   }
 
@@ -91,8 +192,8 @@ function ProjectCard({ project, onViewClick }) {
         borderColor: colors.borderCard,
         backgroundColor: colors.bgCard,
         boxShadow: colors.shadowSm,
-        "--tw-border-opacity": "1", // Ensure border opacity is 1 for hover
-        "--tw-shadow-color": "rgba(0, 0, 0, 0.1)", // Ensure shadow color is applied
+        "--tw-border-opacity": "1",
+        "--tw-shadow-color": "rgba(0, 0, 0, 0.1)",
       }}
     >
       {project.priority && (
@@ -182,7 +283,7 @@ function ProjectColumn({ title, count, projects, type, onCreateProject, canCreat
         </div>
         {canCreateProject && (
           <button
-            onClick={() =>{onCreateProject();}}
+            onClick={() => { onCreateProject(); }}
             className="flex h-7 w-7 items-center justify-center rounded-full border bg-white text-text-medium transition-all hover:bg-bg-hover cursor-pointer"
             style={{
               borderColor: colors.borderDefault,
@@ -208,99 +309,17 @@ function ProjectColumn({ title, count, projects, type, onCreateProject, canCreat
 export default function ProjectsView() {
   const navigate = useNavigate();
 
-  const { hasPermission, role, permissions } = useRbac();
+  // Frontend-only permission toggle (set false to hide "+"/create buttons)
+  const canCreateProject = true;
 
-  const canCreateProject = hasPermission("project.create");
-
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
-  const [isUserPanelOpen, setIsUserPanelOpen] = useState(true);
-  const [pendingProjectsApi, setPendingProjectsApi] = useState([]);
-  const [inProgressProjectsApi, setInProgressProjectsApi] = useState([]);
-  const [completedProjectsApi, setCompletedProjectsApi] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [pendingProjectsApi] = useState(MOCK_PENDING_PROJECTS);
+  const [inProgressProjectsApi] = useState(MOCK_PROGRESS_PROJECTS);
+  const [completedProjectsApi] = useState(MOCK_COMPLETED_PROJECTS);
 
   // Handle project click to navigate to project details
   const handleProjectClick = (projectId) => {
-    
     navigate(`/projects/${projectId}`);
   };
-
-  // Decode token role and fetch projects for the company
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setIsAdminPanelOpen(canCreateProject);
-        setIsUserPanelOpen(!canCreateProject);
-
-        const companyId = payload.companyCode || payload.id; // company tokens may not have companyCode
-        if (companyId) {
-          fetchProjects(companyId, token);
-        } else {
-          setLoading(false);
-        }
-      } catch (e) {
-        console.error('Failed to parse token', e);
-        setLoading(false);
-      }
-    } else {
-      setLoading(false);
-    }
-  }, []);
-
-  const fetchProjects = async (companyId, token) => {
-    try {
-      setLoading(true);
-      // ⭐ OPTIMIZED: Fetch projects with stats in ONE API call
-      const res = await axios.get(`${BASE_URL}/projects/company/${companyId}/with-stats`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const projects = res.data.projects || [];
-      categorizeProjects(projects);
-    } catch (err) {
-      console.error('Error loading projects:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const categorizeProjects = (projects) => {
-    const now = new Date();
-
-    const pending = [];
-    const progress = [];
-    const completed = [];
-
-    projects.forEach((p) => {
-      const card = {
-        id: p.id,
-        title: p.title,
-        priority: '',
-        progress: p.taskProgress || 0, // ⭐ Use progress from backend
-        status: deriveStatus(p, now),
-        team: [],
-        stats: { views: 0, comments: 0 },
-      };
-
-      if (card.status === 'pending') pending.push(card);
-      else if (card.status === 'progress') progress.push(card);
-      else completed.push(card);
-    });
-
-    setPendingProjectsApi(pending);
-    setInProgressProjectsApi(progress);
-    setCompletedProjectsApi(completed);
-  };
-
-  const deriveStatus = (p, now) => {
-    const start = p.startDate ? new Date(p.startDate) : null;
-    const end = p.endDate ? new Date(p.endDate) : null;
-    if (end && end < now) return 'completed';
-    if (start && start > now) return 'pending';
-    return 'progress';
-  };
-
 
   return (
     <div

@@ -1,6 +1,4 @@
 import React, { useState, useRef } from 'react';
-import axios from 'axios';
-import { BASE_URL } from '../../utility/Config';
 import {
   ChevronLeft,
   ChevronRight,
@@ -87,20 +85,25 @@ const LeaveManagement = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmit = async () => {
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      await axios.post(`${BASE_URL}/notifications/requests`, {
+  const handleSubmit = () => {
+    // Validation
+    if (!leaveType || !dateRange.from || !dateRange.to) {
+      alert('Please select a leave type and date range');
+      return;
+    }
+
+    // Simulate submission (frontend-only)
+    setSubmitting(true);
+
+    setTimeout(() => {
+      console.log('Leave request submitted (mock):', {
         requestType: 'leave_request',
-        title: leaveType || 'Leave Request',
+        title: leaveType,
         leaveType,
         fromDate: dateRange.from,
         toDate: dateRange.to,
         description,
         attachmentUrl: attachment?.url || null,
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       setLeaveType('');
@@ -108,22 +111,19 @@ const LeaveManagement = () => {
       setAttachment(null);
       setDateRange({ from: '', to: '' });
       if (fileInputRef.current) fileInputRef.current.value = '';
-      alert('Leave request submitted');
-    } catch (error) {
-      console.error('Leave submit error:', error);
-      alert(error.response?.data?.msg || 'Failed to submit leave request');
-    } finally {
+
       setSubmitting(false);
-    }
+      alert('Leave request submitted');
+    }, 800);
   };
 
   return (
     <div className="min-h-screen bg-white p-4 md:p-8 font-sans text-gray-900">
       <div className="max-w-7xl mx-auto space-y-8">
-        
+
         {/* ================= TOP SECTION: Calendar + Stats ================= */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
+
           {/* --- Calendar --- */}
           <div className="lg:col-span-5">
             <div className="flex items-center justify-between mb-6">
@@ -229,7 +229,7 @@ const LeaveManagement = () => {
         {activeTab === 'Apply' && (
           <div className="max-w-5xl mx-auto">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              
+
               {/* Left Column: Duration, Description, Attachment */}
               <div className="space-y-5">
                 {/* Duration */}

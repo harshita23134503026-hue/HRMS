@@ -1,13 +1,48 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { BASE_URL } from '../../utility/Config';
-import useNotificationStream from '../utility/useNotificationStream';
+import React, { useEffect, useState } from 'react';
 import LeaveRequestDetailModal from './LeaveRequestDetailModal';
 
-const buildAuthHeader = () => {
-  const token = localStorage.getItem('token');
-  return { headers: { Authorization: `Bearer ${token}` } };
-};
+// ─── Mock Data ───────────────────────────────────────────────
+const MOCK_PENDING_REQUESTS = [
+  {
+    id: "lr1",
+    type: "leave_request",
+    status: "pending_manager",
+    userId: "2",
+    userName: "Jackson Lee",
+    message: "Applied for 3 days of Sick Leave (Apr 21 – Apr 23).",
+    leaveType: "Sick Leave",
+    startDate: "2026-04-21",
+    endDate: "2026-04-23",
+    reason: "Viral fever, doctor advised rest.",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+  },
+  {
+    id: "lr3",
+    type: "leave_request",
+    status: "pending_hr",
+    userId: "5",
+    userName: "Ava Johnson",
+    message: "Applied for 5 days of Planned Leave (May 05 – May 09).",
+    leaveType: "Planned Leave",
+    startDate: "2026-05-05",
+    endDate: "2026-05-09",
+    reason: "Vacation with family.",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
+  },
+  {
+    id: "lr6",
+    type: "leave_request",
+    status: "pending_manager",
+    userId: "3",
+    userName: "Sophia Brown",
+    message: "Applied for 1 day of Work From Home (Apr 24).",
+    leaveType: "Work From Home",
+    startDate: "2026-04-24",
+    endDate: "2026-04-24",
+    reason: "Plumber visit at home.",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(),
+  },
+];
 
 const toAvatar = (notification) => {
   const seed = notification.userId || notification.id || 1;
@@ -20,83 +55,30 @@ function PendingList() {
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [selectedRequest, setSelectedRequest] = useState(null);
 
-  const currentUser = useMemo(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return { id: null, role: '' };
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return { id: payload.id || null, role: payload.role || '' };
-    } catch {
-      return { id: null, role: '' };
-    }
-  }, []);
-
-  const currentRole = String(currentUser.role || '').toLowerCase();
-
-  const isActionableRequest = useCallback((request) => {
-    const status = String(request.status || '').toLowerCase();
-    if (!['pending_manager', 'pending_hr'].includes(status)) return false;
-    if (String(request.userId) === String(currentUser.id)) return false;
-
-    const targetUserId = request.targetUserId ? String(request.targetUserId) : null;
-    const targetRole = String(request.targetRole || '').toLowerCase();
-
-    return Boolean(
-      targetUserId === String(currentUser.id) ||
-      (targetRole && targetRole === currentRole) ||
-      ['admin', 'sadmin'].includes(currentRole)
-    );
-  }, [currentRole, currentUser.id]);
-
-  const actionableRequests = useMemo(() => requests.filter(isActionableRequest), [requests, isActionableRequest]);
-
-  const canManageRequests = actionableRequests.length > 0;
-
-  const fetchRequests = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await axios.get(`${BASE_URL}/notifications?type=leave_request`, buildAuthHeader());
-      const list = Array.isArray(res.data?.notifications) ? res.data.notifications : [];
-      setRequests(list);
-    } catch (error) {
-      console.error('Failed to load leave pending requests:', error);
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Load mock pending requests (simulates fetch delay)
   useEffect(() => {
-    fetchRequests();
-  }, [fetchRequests]);
+    setLoading(true);
 
-  useNotificationStream((payload, eventType) => {
-    const notification = payload?.notification;
-    if (!notification) return;
+    const timer = setTimeout(() => {
+      setRequests(MOCK_PENDING_REQUESTS);
+      setLoading(false);
+    }, 500);
 
-    if (notification.type !== 'leave_request') return;
-    if (eventType === 'notification.created' || eventType === 'notification.updated') {
-      fetchRequests();
-    }
-  });
+    return () => clearTimeout(timer);
+  }, []);
 
-  const handleDecision = async (notificationId, action, reason) => {
-    try {
-      setActionLoadingId(notificationId);
-      const payload = action === 'reject' ? { action, reason } : { action };
-      await axios.patch(
-        `${BASE_URL}/notifications/${notificationId}/decision`,
-        payload,
-        buildAuthHeader()
-      );
-      await fetchRequests();
+  // Handle approve/reject in local state
+  const handleDecision = (notificationId, action, reason) => {
+    setActionLoadingId(notificationId);
+
+    // Simulate API delay
+    setTimeout(() => {
+      setRequests((prev) => prev.filter((r) => r.id !== notificationId));
       setSelectedRequest(null);
-    } catch (error) {
-      console.error('Failed to update leave request:', error);
-      alert(error.response?.data?.msg || 'Failed to update request');
-    } finally {
       setActionLoadingId(null);
-    }
+
+      console.log(`Leave request ${action}d (mock):`, { notificationId, reason });
+    }, 600);
   };
 
   const statusLabel = (status) => {
@@ -107,6 +89,9 @@ function PendingList() {
     if (normalized === 'rejected') return 'Rejected';
     return 'Pending';
   };
+
+  // Frontend-only: all requests are actionable
+  const canManageRequests = requests.length > 0;
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -127,8 +112,8 @@ function PendingList() {
               <tbody className="divide-y divide-gray-200">
                 {loading ? (
                   <tr><td className="px-5 py-6 text-sm text-gray-500" colSpan={canManageRequests ? 5 : 4}>Loading...</td></tr>
-                ) : actionableRequests.length ? (
-                  actionableRequests.map((r) => (
+                ) : requests.length ? (
+                  requests.map((r) => (
                     <tr key={r.id} className="bg-white cursor-pointer hover:bg-slate-50" onClick={() => setSelectedRequest(r)}>
                       <td className="px-5 py-4">
                         <div className="max-w-[320px] truncate text-sm text-gray-800">{r.message}</div>
@@ -164,8 +149,8 @@ function PendingList() {
         <div className="sm:hidden divide-y divide-gray-200">
           {loading ? (
             <div className="p-4 text-sm text-gray-500">Loading...</div>
-          ) : actionableRequests.length ? (
-            actionableRequests.map((r) => (
+          ) : requests.length ? (
+            requests.map((r) => (
               <div key={r.id} className="p-4 cursor-pointer" onClick={() => setSelectedRequest(r)}>
                 <div className="text-sm font-medium text-gray-900 truncate">{r.message}</div>
                 <div className="mt-3 flex items-center gap-3">
@@ -194,7 +179,7 @@ function PendingList() {
         isOpen={Boolean(selectedRequest)}
         request={selectedRequest}
         onClose={() => setSelectedRequest(null)}
-        canDecide={Boolean(selectedRequest && isActionableRequest(selectedRequest))}
+        canDecide={Boolean(selectedRequest)}
         actionLoading={Boolean(actionLoadingId)}
         onApprove={() => selectedRequest && handleDecision(selectedRequest.id, 'approve')}
         onReject={(reason) => selectedRequest && handleDecision(selectedRequest.id, 'reject', reason)}

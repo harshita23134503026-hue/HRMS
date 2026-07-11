@@ -1,12 +1,63 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
-import { BASE_URL } from '../../utility/Config';
-import useNotificationStream from '../utility/useNotificationStream';
+import React, { useEffect, useState } from 'react';
 
-const buildAuthHeader = () => {
-  const token = localStorage.getItem('token');
-  return { headers: { Authorization: `Bearer ${token}` } };
-};
+// ─── Mock Data ───────────────────────────────────────────────
+const MOCK_REGULARIZATION_HISTORY = [
+  {
+    id: "rg1",
+    type: "regularization_request",
+    status: "approved",
+    userId: "1",
+    userName: "Olivia Martin",
+    message: "Regularization for missed punch-out on Apr 02.",
+    fromDate: "2026-04-02",
+    toDate: "2026-04-02",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15).toISOString(), // 15 days ago
+  },
+  {
+    id: "rg2",
+    type: "regularization_request",
+    status: "rejected",
+    userId: "2",
+    userName: "Jackson Lee",
+    message: "Regularization for late punch-in on Apr 05.",
+    fromDate: "2026-04-05",
+    toDate: "2026-04-05",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(), // 12 days ago
+  },
+  {
+    id: "rg3",
+    type: "regularization_request",
+    status: "pending",
+    userId: "3",
+    userName: "Sophia Brown",
+    message: "Regularization for missed punch-in on Apr 14.",
+    fromDate: "2026-04-14",
+    toDate: "2026-04-14",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString(), // 4 days ago
+  },
+  {
+    id: "rg4",
+    type: "regularization_request",
+    status: "approved",
+    userId: "5",
+    userName: "Ava Johnson",
+    message: "Regularization for attendance correction (Apr 08 – Apr 09).",
+    fromDate: "2026-04-08",
+    toDate: "2026-04-09",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9).toISOString(), // 9 days ago
+  },
+  {
+    id: "rg5",
+    type: "regularization_request",
+    status: "pending",
+    userId: "4",
+    userName: "Ethan Wilson",
+    message: "Regularization for missed punch-out on Apr 17.",
+    fromDate: "2026-04-17",
+    toDate: "2026-04-17",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(), // 20 hrs ago
+  },
+];
 
 const toAvatar = (notification) => {
   const seed = notification.userId || notification.id || 1;
@@ -17,31 +68,17 @@ function ReguHistoryList() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchRequests = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await axios.get(`${BASE_URL}/notifications?type=regularization_request`, buildAuthHeader());
-      setRequests(Array.isArray(res.data?.notifications) ? res.data.notifications : []);
-    } catch (error) {
-      console.error('Failed to load regularization history:', error);
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Load mock regularization history (simulates fetch delay)
   useEffect(() => {
-    fetchRequests();
-  }, [fetchRequests]);
+    setLoading(true);
 
-  useNotificationStream((payload, eventType) => {
-    const notification = payload?.notification;
-    if (!notification) return;
-    if (notification.type !== 'regularization_request') return;
-    if (eventType === 'notification.created' || eventType === 'notification.updated') {
-      fetchRequests();
-    }
-  });
+    const timer = setTimeout(() => {
+      setRequests(MOCK_REGULARIZATION_HISTORY);
+      setLoading(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const statusStyles = (status) => {
     const normalized = String(status || '').toLowerCase();

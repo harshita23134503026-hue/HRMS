@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { FaChevronDown } from "react-icons/fa";
 import TableCal from "../components/Basic/tableCal";  // <-- IMPORT POPUP CALENDAR
-import axios from "axios";
-import { BASE_URL } from "../utility/Config";
 import { useNavigate } from "react-router-dom";
+
+// Mock employee data (frontend-only)
+const MOCK_EMPLOYEES = [
+  { id: "1", name: "Olivia Martin", role: "Frontend Developer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Olivia%20Martin" },
+  { id: "2", name: "Jackson Lee", role: "Backend Developer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Jackson%20Lee" },
+  { id: "3", name: "Sophia Brown", role: "UI/UX Designer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Sophia%20Brown" },
+  { id: "4", name: "Ethan Wilson", role: "Project Manager", img: "https://api.dicebear.com/7.x/initials/svg?seed=Ethan%20Wilson" },
+  { id: "5", name: "Ava Johnson", role: "QA Engineer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Ava%20Johnson" },
+  { id: "6", name: "Liam Davis", role: "DevOps Engineer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Liam%20Davis" },
+];
 
 const CreateProject = () => {
   const navigate = useNavigate();
@@ -21,30 +29,17 @@ const CreateProject = () => {
   const [showMoreAvatars, setShowMoreAvatars] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
+  // Load mock employees (simulates a fetch delay)
   useEffect(() => {
-    const fetchCompanyUsers = async () => {
-      try {
-        setLoadingUsers(true);
-        const token = localStorage.getItem('token');
-        // Fetch only authorized users using the auth token
-        const response = await axios.get(`${BASE_URL}/company/users`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const users = (response.data.users || []).map(u => ({
-          id: u.id, // Use 'id' from Sequelize
-          name: u.name,
-          role: u.role || 'Member',
-          img: u.avatar || u.image || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(u.name || 'User')}`
-        }));
-        setEmployees(users);
-      } catch (err) {
-        console.error('Error fetching users:', err);
-      } finally {
-        setLoadingUsers(false);
-      }
-    };
-    fetchCompanyUsers();
+    setLoadingUsers(true);
+    const timer = setTimeout(() => {
+      setEmployees(MOCK_EMPLOYEES);
+      setLoadingUsers(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, []);
 
   // -------- Calendar Handling --------
@@ -63,6 +58,7 @@ const CreateProject = () => {
   // -------- Form Submit --------
   const handleSubmit = (e) => {
     e.preventDefault();
+
     const payload = {
       title: projectName,
       description,
@@ -70,18 +66,22 @@ const CreateProject = () => {
       endDate: dueDate,
       participants: selectedEmployeeIds
     };
-    const create = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        await axios.post(`${BASE_URL}/projects`, payload, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        navigate('/dashboard');
-      } catch (err) {
-        console.error('Error creating project:', err);
-      }
-    };
-    create();
+
+    // Simulate API submission (frontend-only)
+    setSubmitting(true);
+
+    setTimeout(() => {
+      console.log("Project Created (Mock):", payload);
+
+      setProjectName("");
+      setDescription("");
+      setStartDate("");
+      setDueDate("");
+      setSelectedEmployeeIds([]);
+
+      setSubmitting(false);
+      navigate('/dashboard');
+    }, 1000);
   };
 
   return (
@@ -160,6 +160,7 @@ const CreateProject = () => {
                           key={emp.id}
                           src={emp.img}
                           alt={emp.name}
+                          title={emp.name}
                           className={`w-8 h-8 rounded-full border-2 border-white object-cover ${idx > 0 ? '-ml-2' : ''}`}
                         />
                       ))
@@ -173,8 +174,20 @@ const CreateProject = () => {
                   Cancel
                 </button>
 
-                <button type="submit" className={`rounded-xl px-10 py-3 text-white ${selectedEmployeeIds.length === 0 ? 'bg-blue-500/60 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`} disabled={selectedEmployeeIds.length === 0}>
-                  {selectedEmployeeIds.length === 0 ? 'Select members to create' : 'Create'}
+                <button
+                  type="submit"
+                  className={`rounded-xl px-10 py-3 text-white ${
+                    selectedEmployeeIds.length === 0 || submitting
+                      ? 'bg-blue-500/60 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600'
+                  }`}
+                  disabled={selectedEmployeeIds.length === 0 || submitting}
+                >
+                  {submitting
+                    ? 'Creating...'
+                    : selectedEmployeeIds.length === 0
+                      ? 'Select members to create'
+                      : 'Create'}
                 </button>
               </div>
             </div>
@@ -182,7 +195,7 @@ const CreateProject = () => {
             {/* RIGHT SIDE EMPLOYEE DROPDOWN */}
             <div className="w-[438px]">
               <div className={`bg-white border border-blue-500 shadow ${showEmployeeList ? 'rounded-t-xl' : 'rounded-xl'}`}>
-                
+
                 <button
                   type="button"
                   className="w-full flex items-center justify-between px-6 py-4 border-b-2 border-blue-600 bg-white"
@@ -207,10 +220,17 @@ const CreateProject = () => {
                       <div className="px-6 py-3 text-sm text-gray-500">No team members available</div>
                     ) : employees.map((emp, idx) => (
                       <div
-                        key={idx}
+                        key={emp.id}
                         className={`flex items-center px-6 py-3 cursor-pointer hover:bg-gray-100
                           ${idx !== employees.length - 1 ? 'border-b border-gray-200' : ''}
                         `}
+                        onClick={() => {
+                          setSelectedEmployeeIds(prev => (
+                            prev.includes(emp.id)
+                              ? prev.filter(id => id !== emp.id)
+                              : [...prev, emp.id]
+                          ))
+                        }}
                       >
                         <input
                           type="checkbox"
@@ -224,12 +244,12 @@ const CreateProject = () => {
                           }}
                           className="mr-4 w-4 h-4 accent-blue-600"
                         />
-                        <img src={emp.img} className="w-10 h-10 rounded-full mr-4 border-2" />
+                        <img src={emp.img} alt={emp.name} className="w-10 h-10 rounded-full mr-4 border-2" />
                         <div>
-                          <div className={`text-gray-800 font-semibold`}>
+                          <div className="text-gray-800 font-semibold">
                             {emp.name}
                           </div>
-                          <div className={`text-gray-500 text-xs`}>
+                          <div className="text-gray-500 text-xs">
                             {emp.role}
                           </div>
                         </div>

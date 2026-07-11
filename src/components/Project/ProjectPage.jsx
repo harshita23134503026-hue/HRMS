@@ -1,13 +1,28 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { BASE_URL } from "../../utility/Config";
-import { mapProjectData, formatDate } from "../../utility/dataMapper";
 
 import Nember from "../Nember/Nember";
 import Task from "../Nember/Task";
 import Submit from "../Basic/submit";
 import AssignTask from "../../pages/AssignTask";
+
+// ─── Mock Data ───────────────────────────────────────────────
+const MOCK_PROJECT = {
+  id: "1",
+  projectName: "Website Redesign",
+  description:
+    "Complete overhaul of the company website including a new design system, improved performance, and accessibility upgrades.",
+  startDate: "2026-04-01",
+  endDate: "2026-06-15",
+  team: ["Olivia Martin", "Jackson Lee", "Sophia Brown", "Ethan Wilson", "Ava Johnson"],
+  participantDetails: [
+    { id: "1", name: "Olivia Martin", role: "Frontend Developer" },
+    { id: "2", name: "Jackson Lee", role: "Backend Developer" },
+    { id: "3", name: "Sophia Brown", role: "UI/UX Designer" },
+    { id: "4", name: "Ethan Wilson", role: "Project Manager" },
+    { id: "5", name: "Ava Johnson", role: "QA Engineer" },
+  ],
+};
 
 const ProjectPage = () => {
   const { projectId } = useParams();
@@ -20,63 +35,23 @@ const ProjectPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Frontend-only admin toggle (set false to hide Submit / + Add Task)
+  const [isAdmin] = useState(true);
   const [openSubmitPopup, setOpenSubmitPopup] = useState(false);
   const [showAssignTask, setShowAssignTask] = useState(false);
 
-  // CHECK ADMIN ROLE
+  // LOAD MOCK PROJECT (simulates a fetch delay)
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    setLoading(true);
 
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setIsAdmin(payload.role === "admin");
-      } catch (err) {
-        console.error("Error parsing token", err);
-        setIsAdmin(false);
-      }
-    }
-  }, []);
+    const timer = setTimeout(() => {
+      setProject({ ...MOCK_PROJECT, id: projectId });
+      setError(null);
+      setLoading(false);
+    }, 600);
 
-  // FETCH PROJECT DETAILS
-  useEffect(() => {
-    const fetchProject = async () => {
-      try {
-        setLoading(true);
-
-        const token = localStorage.getItem("token");
-        if (!token) {
-          setError("No authentication token found");
-          setLoading(false);
-          return;
-        }
-        console.log("*********Project id -> ", projectId);
-        const res = await axios.get(`${BASE_URL}/projects/${projectId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        // Map API data to frontend format using dataMapper
-        const mappedProject = mapProjectData(res.data);
-        setProject(mappedProject);
-      } catch (err) {
-        if (err.response?.status === 404) setError("Project not found");
-        else if (err.response?.status === 401) {
-          setError("Unauthorized");
-          localStorage.removeItem("token");
-          navigate("/");
-        } else {
-          setError("Failed to load project");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProject();
-  }, [projectId, navigate]);
+    return () => clearTimeout(timer);
+  }, [projectId]);
 
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";

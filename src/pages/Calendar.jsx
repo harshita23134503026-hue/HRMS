@@ -3,16 +3,13 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
 import { Pencil } from 'lucide-react';
-import { BASE_URL } from '../utility/Config';
-import { useRbac } from './context/RbacContext';
 
 const LeaveCard = ({ label, total, consumed, accent }) => (
   <div className={`rounded-xl p-3 border ${accent ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'} flex flex-col gap-0.5`}>
     <p className="text-[10px] text-slate-400 font-medium leading-tight">{label}</p>
     <p className="text-2xl font-bold text-slate-800 leading-tight">{total}</p>
-    <p className="text-[10pxtext-slate-300">Consumed: {consumed}</p>
+    <p className="text-[10px] text-slate-300">Consumed: {consumed}</p>
   </div>
 );
 
@@ -54,10 +51,10 @@ const LEGEND_ITEMS = [
 const DAY_TYPES = ['🛌 Rest Day', '📅 Off Day', '🌴 Holiday', '🌓 Half Day', '🏭 Plant Shutdown'];
 
 const HOLIDAYS = [
-  { name: 'Republic Day', date: 'Mon, 26 January' },
-  { name: 'Holi',         date: 'Wed, 4 March' },
-  { name: 'Good Friday',  date: 'Fri, 18 April' },
-  { name: 'Eid ul-Fitr',  date: 'Mon, 31 March' },
+  { id: '1', name: 'Republic Day', date: 'Mon, 26 January', dateLabel: 'Mon, 26 January', startDate: '', endDate: '' },
+  { id: '2', name: 'Holi',         date: 'Wed, 4 March',    dateLabel: 'Wed, 4 March',    startDate: '', endDate: '' },
+  { id: '3', name: 'Good Friday',  date: 'Fri, 18 April',   dateLabel: 'Fri, 18 April',   startDate: '', endDate: '' },
+  { id: '4', name: 'Eid ul-Fitr',  date: 'Mon, 31 March',   dateLabel: 'Mon, 31 March',   startDate: '', endDate: '' },
 ];
 
 const INITIAL_EVENTS = [
@@ -87,7 +84,6 @@ const INITIAL_EVENTS = [
 
 export default function Calender() {
   const calRef = useRef();
-  const { role, isAllAccess } = useRbac();
   const [events, setEvents]         = useState(INITIAL_EVENTS);
   const [showModal, setShowModal]   = useState(false);
   const [newDate, setNewDate]       = useState('');
@@ -100,45 +96,8 @@ export default function Calender() {
   const [holidayDraft, setHolidayDraft] = useState({ name: '', startDate: '', endDate: '', dateLabel: '' });
   const [editingHolidayIndex, setEditingHolidayIndex] = useState(null);
 
-  const currentRoleName = typeof role === 'string' ? role : role?.name;
-  const canManageHolidays = Boolean(isAllAccess || currentRoleName === 'admin');
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
-
-  const formatHolidayDisplayDate = (holiday) => {
-    if (holiday.startDate && holiday.endDate) {
-      return holiday.startDate === holiday.endDate
-        ? holiday.startDate
-        : `${holiday.startDate} to ${holiday.endDate}`;
-    }
-
-    return holiday.dateLabel || holiday.date || '';
-  };
-
-  useEffect(() => {
-    const fetchHolidays = async () => {
-      if (!token) return;
-      try {
-        const res = await axios.get(`${BASE_URL}/holidays`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const list = Array.isArray(res.data?.holidays) ? res.data.holidays : [];
-        if (list.length) {
-          setHolidays(list.map((holiday) => ({
-            id: holiday.id,
-            name: holiday.name,
-            date: formatHolidayDisplayDate(holiday),
-            dateLabel: holiday.dateLabel,
-            startDate: holiday.startDate || '',
-            endDate: holiday.endDate || '',
-          })));
-        }
-      } catch (error) {
-        console.error('Failed to load holidays:', error);
-      }
-    };
-
-    fetchHolidays();
-  }, [token]);
+  // Frontend-only: everyone can manage holidays (no RBAC)
+  const canManageHolidays = true;
 
   useEffect(() => {
     const t = setTimeout(() => calRef.current?.getApi().updateSize(), 250);
@@ -172,59 +131,34 @@ export default function Calender() {
     const hasRange = Boolean(holidayDraft.startDate.trim() || holidayDraft.endDate.trim());
     if (hasRange && (!holidayDraft.startDate.trim() || !holidayDraft.endDate.trim())) return;
 
-    const payload = {
+    const dateLabel = holidayDraft.dateLabel.trim() || (hasRange
+      ? `${holidayDraft.startDate.trim()} to ${holidayDraft.endDate.trim()}`
+      : '');
+
+    if (!dateLabel) return;
+
+    const newHoliday = {
+      id: editingHolidayIndex === null ? String(Date.now()) : holidays[editingHolidayIndex]?.id,
       name: holidayDraft.name.trim(),
-      dateLabel: holidayDraft.dateLabel.trim() || (hasRange
-        ? `${holidayDraft.startDate.trim()} to ${holidayDraft.endDate.trim()}`
-        : ''),
-      startDate: holidayDraft.startDate.trim() || undefined,
-      endDate: holidayDraft.endDate.trim() || undefined,
+      date: dateLabel,
+      dateLabel,
+      startDate: holidayDraft.startDate.trim(),
+      endDate: holidayDraft.endDate.trim(),
     };
 
-    if (!payload.dateLabel) return;
+    setHolidays((prev) => {
+      if (editingHolidayIndex === null) {
+        return [...prev, newHoliday];
+      }
 
-    const request = editingHolidayIndex === null
-      ? axios.post(`${BASE_URL}/holidays`, payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      : axios.patch(`${BASE_URL}/holidays/${holidays[editingHolidayIndex]?.id}`, payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      return prev.map((holiday, index) => (
+        index === editingHolidayIndex ? newHoliday : holiday
+      ));
+    });
 
-    request
-      .then((res) => {
-        const nextHoliday = res.data?.holiday;
-        if (!nextHoliday) return;
-
-        const normalizedHoliday = {
-          id: nextHoliday.id,
-          name: nextHoliday.name,
-          date: formatHolidayDisplayDate(nextHoliday),
-          dateLabel: nextHoliday.dateLabel,
-          startDate: nextHoliday.startDate || '',
-          endDate: nextHoliday.endDate || '',
-        };
-
-        setHolidays((prev) => {
-          if (editingHolidayIndex === null) {
-            return [...prev, normalizedHoliday];
-          }
-
-          return prev.map((holiday, index) => (
-            index === editingHolidayIndex
-              ? normalizedHoliday
-              : holiday
-          ));
-        });
-
-        setHolidayModalOpen(false);
-        setHolidayDraft({ name: '', date: '' });
-        setEditingHolidayIndex(null);
-      })
-      .catch((error) => {
-        console.error('Failed to save holiday:', error);
-        alert(error.response?.data?.msg || 'Failed to save holiday');
-      });
+    setHolidayModalOpen(false);
+    setHolidayDraft({ name: '', startDate: '', endDate: '', dateLabel: '' });
+    setEditingHolidayIndex(null);
   };
 
   return (
@@ -436,7 +370,7 @@ export default function Calender() {
               </div>
               <div className="flex flex-col gap-2.5">
                 {holidays.map((h, index) => (
-                  <div key={`${h.name}-${index}`} className="flex items-center justify-between gap-2">
+                  <div key={`${h.id}-${index}`} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-300 flex-shrink-0" />
                       <span className="text-[12px] text-slate-600 font-medium">{h.name}</span>

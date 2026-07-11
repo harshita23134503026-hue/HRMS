@@ -1,29 +1,108 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
-import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
-import { io } from "socket.io-client";
-import { BASE_URL, CHAT_BASE_URL } from "../../utility/Config";
-import { mapUserData } from "../../utility/dataMapper";
-import { formatLastSeen, getPresenceBadgeClass, getPresenceBadgeLabel, getPresenceDotClass } from "../../utility/presence";
-import { useRbac } from "../../pages/context/RbacContext";
-import ViewProfile from "../Basic/viewprofile"; // ✅ IMPORT VIEW PROFILE POPUP
+
+// ─── Mock Data ───────────────────────────────────────────────
+const MOCK_MEMBERS = [
+  {
+    _id: "1",
+    name: "Olivia Martin",
+    email: "olivia@taskfleet.com",
+    role: "frontend_developer",
+    displayRole: "Frontend Developer",
+    phone: "+1 555-0101",
+    joined: "12/01/2026",
+    img: 11,
+    isOnline: true,
+    lastSeenAt: null,
+  },
+  {
+    _id: "2",
+    name: "Jackson Lee",
+    email: "jackson@taskfleet.com",
+    role: "backend_developer",
+    displayRole: "Backend Developer",
+    phone: "+1 555-0102",
+    joined: "15/01/2026",
+    img: 12,
+    isOnline: true,
+    lastSeenAt: null,
+  },
+  {
+    _id: "3",
+    name: "Sophia Brown",
+    email: "sophia@taskfleet.com",
+    role: "ui_ux_designer",
+    displayRole: "UI/UX Designer",
+    phone: "+1 555-0103",
+    joined: "20/01/2026",
+    img: 5,
+    isOnline: false,
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(), // 25 min ago
+  },
+  {
+    _id: "4",
+    name: "Ethan Wilson",
+    email: "ethan@taskfleet.com",
+    role: "project_manager",
+    displayRole: "Project Manager",
+    phone: "+1 555-0104",
+    joined: "02/02/2026",
+    img: 8,
+    isOnline: false,
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(), // 5 hrs ago
+  },
+  {
+    _id: "5",
+    name: "Ava Johnson",
+    email: "ava@taskfleet.com",
+    role: "qa_engineer",
+    displayRole: "QA Engineer",
+    phone: "+1 555-0105",
+    joined: "10/02/2026",
+    img: 9,
+    isOnline: false,
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(), // 1 day ago
+  },
+];
+
+// ─── Presence helpers (frontend-only) ────────────────────────
+const formatLastSeen = (lastSeenAt, now) => {
+  if (!lastSeenAt) return "Offline";
+  const diffMs = now - new Date(lastSeenAt).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+};
+
+const getPresenceDotClass = (isOnline) =>
+  isOnline ? "bg-green-500" : "bg-gray-300";
+
+const getPresenceBadgeClass = () => "bg-gray-200 text-gray-600";
+
+const getPresenceBadgeLabel = (member, nowTick) =>
+  formatLastSeen(member.lastSeenAt, nowTick);
 
 export default function Nember({ projectId: propProjectId, projectParticipants = [] }) {
   const navigate = useNavigate();
-  const { role, isAllAccess, hasPermission } = useRbac();
   const { projectId: paramProjectId } = useParams();
-  const projectId = propProjectId || paramProjectId; // Use prop if available, else from URL params
-  
+  const projectId = propProjectId || paramProjectId;
+
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openMenuIndex, setOpenMenuIndex] = useState(null);
   const [openEditModal, setOpenEditModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
-  const [openViewProfile, setOpenViewProfile] = useState(false);
-  const socketRef = useRef(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
+  // Frontend-only admin toggle (set false to hide ••• menus)
+  const isAdmin = true;
+
+  // Tick every minute so "last seen" labels stay fresh
   useEffect(() => {
     const timer = setInterval(() => {
       setNowTick(Date.now());
@@ -32,138 +111,37 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
     return () => clearInterval(timer);
   }, []);
 
+  // Load mock members (simulates a fetch delay)
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token || socketRef.current) return;
+    setLoading(true);
 
-    const socket = io(CHAT_BASE_URL, {
-      auth: { token },
-      transports: ["websocket"],
-      autoConnect: false,
-    });
-
-    socketRef.current = socket;
-
-    const updatePresence = (payload) => {
-      if (!payload?.userId) return;
-      const targetUserId = String(payload.userId);
-
-      setMembers((prev) =>
-        prev.map((member) => {
-          const memberId = String(member._id || member.id || member.email || "");
-          if (memberId !== targetUserId) return member;
-
-          return {
-            ...member,
-            isOnline: Boolean(payload.isOnline),
-            lastSeenAt: payload.lastSeenAt || member.lastSeenAt || null,
-            lastSeenAgo: payload.isOnline
-              ? "Online now"
-              : formatLastSeen(payload.lastSeenAt || member.lastSeenAt, Date.now()),
-          };
-        })
-      );
-    };
-
-    socket.on("connect", () => {
-      socket.emit("connect_user");
-    });
-
-    // Heartbeat: send presence_ping every 60 seconds while connected
-    let heartbeatTimer = null;
-    socket.on('connect', () => {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      heartbeatTimer = setInterval(() => {
-        try {
-          if (socket && socket.connected) socket.emit('presence_ping', { ts: Date.now() });
-        } catch (e) {
-          // ignore
-        }
-      }, 60000);
-    });
-
-    socket.on("presence_changed", updatePresence);
-    socket.connect();
-
-    return () => {
-      if (socketRef.current === socket) {
-        socket.disconnect();
-        socketRef.current = null;
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
+    const timer = setTimeout(() => {
+      // Prefer participants passed from the parent (ProjectPage mock), else use local mock
+      if (projectParticipants && Array.isArray(projectParticipants) && projectParticipants.length > 0) {
+        const mapped = projectParticipants.map((user, idx) => ({
+          _id: user.id || user._id || String(idx),
+          name: user.name || "Unknown",
+          email: user.email || `${(user.name || "user").toLowerCase().replace(/\s+/g, ".")}@taskfleet.com`,
+          role: user.role || "member",
+          displayRole: user.role ? user.role.replace(/_/g, " ") : "Member",
+          phone: user.mobile || user.phone || "N/A",
+          joined: user.createdAt
+            ? new Date(user.createdAt).toLocaleDateString("en-GB")
+            : "01/03/2026",
+          img: (idx % 70) + 1,
+          isOnline: idx < 2, // first two members "online" for demo
+          lastSeenAt: idx < 2 ? null : new Date(Date.now() - 1000 * 60 * 30 * (idx + 1)).toISOString(),
+        }));
+        setMembers(mapped);
+      } else {
+        setMembers(MOCK_MEMBERS);
       }
-    };
-  }, []);
 
-  // Fetch project members or company users based on projectId
-  useEffect(() => {
-    const fetchMembers = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem('token');
-        
-        let usersData = [];
-        
-        // First, check if participants are passed directly (already populated)
-        if (projectParticipants && Array.isArray(projectParticipants) && projectParticipants.length > 0) {
-          console.log("Using projectParticipants prop:", projectParticipants);
-          usersData = projectParticipants;
-        } else if (projectId) {
-          // Otherwise, fetch from API
-          console.log("Fetching members for projectId:", projectId);
-          const response = await axios.get(`${BASE_URL}/projects/${projectId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          
-          console.log("API Response:", response.data);
-          
-          // IMPORTANT: Use participantDetails (full user objects) instead of participants (IDs)
-          usersData = response.data.participantDetails || response.data.participants || [];
-          console.log("usersData after extracting from response:", usersData);
-        } else {
-          // Fallback: fetch all company users
-          const response = await axios.get(`${BASE_URL}/company/users?includeAllRoles=true`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          usersData = response.data.users || [];
-        }
-        
-        if (!Array.isArray(usersData)) {
-          console.log("usersData is not an array:", usersData);
-          setMembers([]);
-          return;
-        }
-        
-        console.log("usersData before mapping:", usersData);
-        
-        // Map users using dataMapper and add UI-specific properties
-        const mappedUsers = usersData.map((user, idx) => {
-          console.log("Mapping user:", user);
-          const mappedUser = mapUserData(user);
-          console.log("Mapped user result:", mappedUser);
-          
-          return {
-            ...mappedUser,
-            img: (idx % 70) + 1, // Random avatar for UI
-            phone: user.mobile || user.phone || 'N/A',
-            joined: user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB') : 'N/A',
-            displayRole: mappedUser?.role ? mappedUser.role.replace(/_/g, ' ') : 'N/A',
-            lastSeenAgo: mappedUser?.lastSeenAgo || user.lastSeenAgo || null,
-          };
-        });
-        
-        console.log("Final mappedUsers before setState:", mappedUsers);
-        setMembers(mappedUsers);
-        
-      } catch (error) {
-        console.error('Error fetching members:', error);
-        setMembers(projectParticipants && Array.isArray(projectParticipants) ? projectParticipants : []);
-      } finally {
-        setLoading(false);
-      }
-    };
+      setLoading(false);
+    }, 500);
 
-    fetchMembers();
-  }, [projectId]); // Removed projectParticipants from dependencies
+    return () => clearTimeout(timer);
+  }, [projectId, projectParticipants]);
 
   // close dropdown when click outside current menu/button
   useEffect(() => {
@@ -198,9 +176,6 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
     }
   };
 
-  const currentRoleName = typeof role === "string" ? role : role?.name;
-  const isAdmin = Boolean(isAllAccess || currentRoleName === "admin" || hasPermission("role.update"));
-
   if (loading) {
     return (
       <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
@@ -214,7 +189,6 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
   return (
     <>
       <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
-        
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {members.map((member, index) => (
@@ -243,7 +217,7 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
               <p className="text-xs text-gray-500">{member.displayRole}</p>
               <p className="text-xs text-gray-500 pb-12">{member.email}</p>
 
-              {/* ⭐ UPDATED VIEW PROFILE BUTTON ⭐ */}
+              {/* VIEW PROFILE BUTTON */}
               <button
                 className="bg-blue-500 text-white w-full text-xs py-3 px-3 rounded-b-2xl hover:bg-blue-600"
                 onClick={() => {
@@ -302,7 +276,7 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
         </div>
       </div>
 
-      {/* Existing EDIT MODAL (UNTOUCHED) */}
+      {/* EDIT MODAL */}
       {openEditModal && selectedMember && (
         <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-[90%] md:w-[550px] p-6 relative shadow-2xl">
@@ -381,9 +355,6 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
           </div>
         </div>
       )}
-
-      {/* ⭐ NEW VIEW PROFILE POPUP ⭐ */}
-      {/* ViewProfile popup removed, now using route navigation */}
     </>
   );
 }
