@@ -133,7 +133,11 @@ const Login = () => {
         email,
         mobile,
         role: "Member",
+        designation: "",
+        parentuid:[],
+        childrenuid:[],
         createdAt: new Date().toISOString(),
+
       });
 
       // Success
