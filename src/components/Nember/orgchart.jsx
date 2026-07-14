@@ -327,12 +327,19 @@ export default function OrgChart() {
   };
 
   return (
-    <div style={{ width: "100vw", height: "70vh", overflow: "hidden", position: "relative", background: "#f0f4f8" }}>
-      {/* Canvas */}
-      <div
-        ref={containerRef}
-        style={{ width: "100%", height: "100%", overflowX: "auto", overflowY: "hidden", cursor: "default", WebkitOverflowScrolling: "touch" }}
-      >
+    <div className="min-h-screen bg-slate-50 p-8 font-sans" style={{ fontFamily: "Roboto, sans-serif" }}>
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold text-gray-900 mb-1" style={{ fontFamily: "Inter, sans-serif" }}>
+          Org Chart
+        </h1>
+      </div>
+
+      <div style={{ width: "100%", height: "70vh", overflow: "hidden", position: "relative", background: "#f0f4f8" }}>
+        {/* Canvas */}
+        <div
+          ref={containerRef}
+          style={{ width: "100%", height: "100%", overflowX: "auto", overflowY: "hidden", cursor: "default", WebkitOverflowScrolling: "touch" }}
+        >
         <div style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "0 0",
@@ -351,10 +358,10 @@ export default function OrgChart() {
             rootId={tree.id}
           />
         </div>
-      </div>
+        </div>
 
-      {/* Zoom + Reset controls */}
-      <div style={{ position: "fixed", right: 20, bottom: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 300 }}>
+        {/* Zoom + Reset controls */}
+        <div style={{ position: "fixed", right: 20, bottom: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 300 }}>
         {[["＋", 0.1], ["−", -0.1]].map(([label, delta]) => (
           <button
             key={label}
@@ -370,10 +377,10 @@ export default function OrgChart() {
         >
           ↺
         </button>
-      </div>
+        </div>
 
-      {/* Edit modal */}
-      {editingNode && (
+        {/* Edit modal */}
+        {editingNode && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
           <div style={{ background: "#fff", borderRadius: 14, padding: 24, minWidth: 280, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
             <h3 style={{ marginBottom: 16, fontSize: 16 }}>Select Employee</h3>
@@ -397,7 +404,8 @@ export default function OrgChart() {
             </button>
           </div>
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

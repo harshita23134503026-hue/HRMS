@@ -40,7 +40,7 @@ const Sidebar = () => {
 
   return (
     <aside
-      className={`relative h-screen bg-[#f4f4f4] py-2 px-3 flex flex-col gap-8 transition-all duration-300 ease-in-out rounded-2xl ${
+      className={`relative flex-shrink-0 h-screen bg-[#f4f4f4] py-2 px-3 flex flex-col gap-8 transition-all duration-300 ease-in-out rounded-2xl ${
         collapsed ? "w-20" : "w-64"
       }`}
     >
