@@ -12,7 +12,7 @@ export default function Layout() {
       <div className="flex-1 min-w-0 flex flex-col">
         <Navbar />
 
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 p-6 overflow-auto hide-scrollbar">
           <Outlet />
         </main>
       </div>
