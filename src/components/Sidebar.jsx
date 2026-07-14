@@ -19,6 +19,8 @@ const menuItems = [
   { label: "Projects", icon: FolderKanban, to: "/projects" },
   { label: "Calendar", icon: Calendar, to: "/calendar" },
   { label: "Time Sheet", icon: MessageSquare, to: "/timesheet" },
+  { label: "Org Chart", icon: Users, to: "/orgchart" }
+
 ];
 
 const generalItems = [

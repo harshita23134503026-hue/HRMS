@@ -14,6 +14,7 @@ import TaskUpdates from "./pages/TaskUpdates";
 import AssignTask from "./pages/AssignTask";
 import AddTaskPage from "./components/AddTaskPage";
 import DayDetailsModal from "./components/DayDetailsModal";
+import OrgChart from "./components/Nember/orgchart";
 
 function App() {
   const location = useLocation();
@@ -31,6 +32,7 @@ function App() {
 
         {/* All pages with Navbar & Sidebar */}
         <Route element={<Layout />}>
+          <Route path="/orgchart" element={<OrgChart />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/projects" element={<Projects />} />

@@ -1,6 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import axios from "axios";
-import { BASE_URL } from "../../utility/Config";
 
 const COLORS = [
   "#2196F3","#4CAF50","#FF9800","#9C27B0","#E91E63",
@@ -19,35 +17,65 @@ const CARD_H = 80;
 const H_GAP = 80;
 const V_GAP = 20;
 
-const buildAuthHeader = () => {
-  const token = localStorage.getItem('token');
-  return { headers: { Authorization: `Bearer ${token}` } };
-};
-
-const normalizeRoleNode = (node) => ({
-  id: node.id,
-   name: node.personName || node.displayName || node.name,
-   role: node.designation || node.name,
-   empId: String(node.employeeId ?? node.membersCount ?? node.userCount ?? 0),
+// ─── Static tree data (replaces API call) ───
+const STATIC_TREE = {
+  id: 1,
+  name: "CEO",
+  role: "Chief Executive Officer",
+  empId: "001",
   collapsed: false,
-  children: Array.isArray(node.children) ? node.children.map(normalizeRoleNode) : [],
-});
-
-const normalizeRoleTree = (nodes = []) => {
-  const roots = nodes.map(normalizeRoleNode);
-
-  if (roots.length === 1) {
-    return roots[0];
-  }
-
-  return {
-    id: "virtual-root",
-    name: "Team Hierarchy",
-    role: `${roots.length} root roles`,
-    empId: `Roles: ${roots.length}`,
-    collapsed: false,
-    children: roots,
-  };
+  children: [
+    {
+      id: 2,
+      name: "John Doe",
+      role: "Manager",
+      empId: "101",
+      collapsed: false,
+      children: [
+        {
+          id: 5,
+          name: "Alex Brown",
+          role: "Engineer",
+          empId: "103",
+          collapsed: false,
+          children: [],
+        },
+        {
+          id: 6,
+          name: "Emily Davis",
+          role: "Engineer",
+          empId: "104",
+          collapsed: false,
+          children: [],
+        },
+      ],
+    },
+    {
+      id: 3,
+      name: "Jane Smith",
+      role: "Lead",
+      empId: "102",
+      collapsed: false,
+      children: [
+        {
+          id: 7,
+          name: "Michael Lee",
+          role: "Designer",
+          empId: "105",
+          collapsed: false,
+          children: [],
+        },
+      ],
+    },
+    {
+      id: 4,
+      name: "Sarah Wilson",
+      role: "HR Manager",
+      empId: "106",
+      collapsed: false,
+      children: [],
+    },
+  ],
 };
 
 function countAll(node) {
@@ -222,44 +250,11 @@ export default function OrgChart() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [editingNode, setEditingNode] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const containerRef = useRef(null);
 
-  const [tree, setTree] = useState(null);
+  // ─── Use static data directly (no API call) ───
+  const [tree, setTree] = useState(STATIC_TREE);
   const zoomRef = useRef(1);
-
-  useEffect(() => {
-    let active = true;
-
-    const fetchTree = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const response = await axios.get(`${BASE_URL}/rbac/roles/tree`, buildAuthHeader());
-        const nextTree = normalizeRoleTree(response.data?.tree || []);
-        if (active) {
-          setTree(nextTree);
-        }
-      } catch (requestError) {
-        console.error("Failed to load role hierarchy:", requestError);
-        if (active) {
-          setError(requestError.response?.data?.msg || "Failed to load role hierarchy");
-          setTree(null);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchTree();
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -338,15 +333,6 @@ export default function OrgChart() {
         ref={containerRef}
         style={{ width: "100%", height: "100%", overflowX: "auto", overflowY: "hidden", cursor: "default", WebkitOverflowScrolling: "touch" }}
       >
-        {loading ? (
-          <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: "#6b7280", fontSize: 14 }}>
-            Loading hierarchy...
-          </div>
-        ) : error ? (
-          <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center", color: "#dc2626", fontSize: 14 }}>
-            {error}
-          </div>
-        ) : !tree ? null : (
         <div style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "0 0",
@@ -365,7 +351,6 @@ export default function OrgChart() {
             rootId={tree.id}
           />
         </div>
-        )}
       </div>
 
       {/* Zoom + Reset controls */}
