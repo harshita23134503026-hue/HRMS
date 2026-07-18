@@ -2,16 +2,8 @@ import React, { useEffect, useState } from "react";
 import { FaChevronDown } from "react-icons/fa";
 import TableCal from "../components/Basic/tableCal";  // <-- IMPORT POPUP CALENDAR
 import { useNavigate } from "react-router-dom";
-
-// Mock employee data (frontend-only)
-const MOCK_EMPLOYEES = [
-  { id: "1", name: "Olivia Martin", role: "Frontend Developer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Olivia%20Martin" },
-  { id: "2", name: "Jackson Lee", role: "Backend Developer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Jackson%20Lee" },
-  { id: "3", name: "Sophia Brown", role: "UI/UX Designer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Sophia%20Brown" },
-  { id: "4", name: "Ethan Wilson", role: "Project Manager", img: "https://api.dicebear.com/7.x/initials/svg?seed=Ethan%20Wilson" },
-  { id: "5", name: "Ava Johnson", role: "QA Engineer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Ava%20Johnson" },
-  { id: "6", name: "Liam Davis", role: "DevOps Engineer", img: "https://api.dicebear.com/7.x/initials/svg?seed=Liam%20Davis" },
-];
+import { collection, getDocs, doc, setDoc } from "firebase/firestore";
+import { db, getUserFromToken } from "../firebase";
 
 const CreateProject = () => {
   const navigate = useNavigate();
@@ -31,15 +23,33 @@ const CreateProject = () => {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load mock employees (simulates a fetch delay)
+  // Load real employees from Firestore
   useEffect(() => {
-    setLoadingUsers(true);
-    const timer = setTimeout(() => {
-      setEmployees(MOCK_EMPLOYEES);
-      setLoadingUsers(false);
-    }, 500);
-
-    return () => clearTimeout(timer);
+    const fetchEmployees = async () => {
+      setLoadingUsers(true);
+      try {
+        const querySnapshot = await getDocs(collection(db, "users"));
+        const employeeList = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          employeeList.push({
+            id: doc.id,
+            uid: data.uid || "", // Store member UID
+            name: data.name || "Unnamed User",
+            role: data.role || "Member",
+            img: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(data.name || "User")}`,
+            email: data.email
+          });
+        });
+        setEmployees(employeeList);
+      } catch (error) {
+        console.error("Error fetching employees from db: ", error);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    
+    fetchEmployees();
   }, []);
 
   // -------- Calendar Handling --------
@@ -56,22 +66,51 @@ const CreateProject = () => {
   };
 
   // -------- Form Submit --------
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const payload = {
-      title: projectName,
-      description,
-      startDate,
-      endDate: dueDate,
-      participants: selectedEmployeeIds
-    };
-
-    // Simulate API submission (frontend-only)
     setSubmitting(true);
+    try {
+      const currentUser = getUserFromToken();
+      const creatorUid = currentUser?.id || currentUser?.uid || "";
+      const creatorName = currentUser?.name || "";
+      const creatorEmail = currentUser?.email || "";
 
-    setTimeout(() => {
-      console.log("Project Created (Mock):", payload);
+      const selectedEmployees = employees.filter(emp => selectedEmployeeIds.includes(emp.id));
+      const team = selectedEmployees.map(emp => emp.name);
+      const participantDetails = selectedEmployees.map(emp => ({
+        id: emp.id,
+        uid: emp.uid || "", // Store member UID
+        name: emp.name,
+        role: emp.role
+      }));
+      const participantUids = selectedEmployees.map(emp => emp.uid || "").filter(Boolean);
+
+      // Generate a new document reference to obtain a unique projectId beforehand
+      const projectRef = doc(collection(db, "project"));
+      const newProjectId = projectRef.id;
+
+      const payload = {
+        projectId: newProjectId, // Explicit projectId field
+        title: projectName,
+        description,
+        startDate,
+        endDate: dueDate,
+        participants: selectedEmployeeIds,
+        participantUids, // Store members' UIDs
+        creatorUid,     // Store creator's UID
+        creatorName,
+        creatorEmail,
+        team,
+        participantDetails,
+        status: "pending",
+        progress: 0,
+        priority: "ok",
+        stats: { views: 0, comments: 0 },
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(projectRef, payload);
 
       setProjectName("");
       setDescription("");
@@ -79,9 +118,13 @@ const CreateProject = () => {
       setDueDate("");
       setSelectedEmployeeIds([]);
 
-      setSubmitting(false);
       navigate('/dashboard');
-    }, 1000);
+    } catch (error) {
+      console.error("Error creating project:", error);
+      alert("Failed to create project: " + error.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

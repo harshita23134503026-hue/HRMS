@@ -2,76 +2,8 @@ import React, { useState, useEffect } from "react";
 import Submit from "../Basic/submit";
 import Pagination from "../Basic/pagination";
 import { useNavigate, useParams } from "react-router-dom";
-
-// ─── Mock Data ───────────────────────────────────────────────
-const CURRENT_USER_ID = "1"; // mock logged-in user
-
-const MOCK_TASKS = [
-  {
-    id: "t1",
-    description: "Design homepage hero section",
-    assignedTo: [{ id: "1", name: "Olivia Martin" }],
-    startDate: "2026-04-10",
-    dueDate: "2026-06-25",
-    status: "In Progress",
-  },
-  {
-    id: "t2",
-    description: "Implement user authentication flow",
-    assignedTo: [{ id: "2", name: "Jackson Lee" }],
-    startDate: "2026-04-05",
-    dueDate: "2026-06-30",
-    status: "In Progress",
-  },
-  {
-    id: "t3",
-    description: "Create color palette & typography guide",
-    assignedTo: [{ id: "3", name: "Sophia Brown" }],
-    startDate: "2026-03-01",
-    dueDate: "2026-03-20",
-    status: "Completed",
-  },
-  {
-    id: "t4",
-    description: "Set up CI/CD pipeline",
-    assignedTo: [{ id: "2", name: "Jackson Lee" }],
-    startDate: "2026-07-01",
-    dueDate: "2026-07-10",
-    status: "Not Started",
-  },
-  {
-    id: "t5",
-    description: "Fix navigation responsiveness on mobile",
-    assignedTo: [{ id: "1", name: "Olivia Martin" }],
-    startDate: "2026-03-15",
-    dueDate: "2026-04-01",
-    status: "In Progress",
-  },
-  {
-    id: "t6",
-    description: "Write API documentation",
-    assignedTo: [{ id: "4", name: "Ethan Wilson" }],
-    startDate: "2026-04-01",
-    dueDate: "2026-04-05",
-    status: "In Progress",
-  },
-  {
-    id: "t7",
-    description: "Conduct usability testing sessions",
-    assignedTo: [{ id: "5", name: "Ava Johnson" }],
-    startDate: "2026-07-05",
-    dueDate: "2026-07-20",
-    status: "Not Started",
-  },
-  {
-    id: "t8",
-    description: "Optimize image assets for web",
-    assignedTo: [{ id: "3", name: "Sophia Brown" }],
-    startDate: "2026-02-10",
-    dueDate: "2026-02-28",
-    status: "Completed",
-  },
-];
+import { db, getUserFromToken } from "../../firebase";
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc } from "firebase/firestore";
 
 // ─── Local date formatter ────────────────────────────────────
 const formatDate = (dateString) => {
@@ -101,25 +33,37 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   const [popupMode, setPopupMode] = useState("Update");
   const [selectedTask, setSelectedTask] = useState(null);
 
-  // Frontend-only: mock current user & admin flag
-  const currentUserId = CURRENT_USER_ID;
-  const isAdmin = true;
+  // Dynamic current user & admin role checks
+  const currentUser = getUserFromToken();
+  const currentUserId = currentUser?.id || currentUser?.uid || "";
+  const currentRole = currentUser?.role?.toLowerCase() || "member";
+  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
 
   // ⭐ PAGINATION STATE
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 5;
 
-  // ⭐ LOAD MOCK TASKS (simulates fetch delay)
+  // ⭐ LOAD TASKS FROM DB
   useEffect(() => {
+    if (!projectId) return;
     setLoading(true);
 
-    const timer = setTimeout(() => {
-      setTasks(MOCK_TASKS);
+    const q = query(collection(db, "tasks"), where("projectId", "==", projectId));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const taskList = [];
+      snapshot.forEach((doc) => {
+        taskList.push({ id: doc.id, ...doc.data() });
+      });
+      setTasks(taskList);
       setError(null);
       setLoading(false);
-    }, 500);
+    }, (err) => {
+      console.error("Error listening to tasks:", err);
+      setError("Failed to fetch tasks");
+      setLoading(false);
+    });
 
-    return () => clearTimeout(timer);
+    return () => unsubscribe();
   }, [projectId]);
 
   // ⭐ FILTER TASKS BASED ON taskFilter PROP
@@ -190,24 +134,42 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     navigate(`/projects/${projectId}/tasks/${task.id}/updates`, { state: { task } });
   };
 
-  // ⭐ HANDLE TASK ACTIONS (frontend-only, updates local state)
-  const handleSubmitTask = (taskId, description) => {
-    if (popupMode === "Submit") {
-      // Final submission: mark task as completed locally
-      setTasks((prevTasks) =>
-        prevTasks.map((task) =>
-          task.id === taskId ? { ...task, status: "Completed" } : task
-        )
-      );
-      console.log("Task marked as completed (mock):", { taskId, description });
-    } else {
-      // Regular update: just log it (updates page uses its own mock data)
-      console.log("Task update added (mock):", {
-        taskId,
-        status: selectedTask?.status || "In Progress",
-        note: description,
-        date: new Date(),
-      });
+  // ⭐ HANDLE TASK ACTIONS (updates Firestore database and creates history log)
+  const handleSubmitTask = async (taskId, description) => {
+    try {
+      const creatorName = currentUser?.name || "Unknown Member";
+      const creatorEmail = currentUser?.email || "";
+      const creatorUid = currentUser?.id || currentUser?.uid || "";
+
+      if (popupMode === "Submit") {
+        // 1. Mark task status as Completed
+        await updateDoc(doc(db, "tasks", taskId), { status: "Completed" });
+
+        // 2. Write details to the new "submissions" collection
+        await addDoc(collection(db, "submissions"), {
+          taskId,
+          projectId,
+          note: description,
+          submittedBy: { name: creatorName, email: creatorEmail, uid: creatorUid },
+          submittedAt: new Date().toISOString(),
+          status: "Completed"
+        });
+      } else {
+        // Write regular task progress update to the "updates" collection
+        await addDoc(collection(db, "updates"), {
+          taskId,
+          projectId,
+          createdByUser: { name: creatorName, email: creatorEmail },
+          createdAt: new Date().toISOString(),
+          note: description,
+          status: selectedTask?.status || "In Progress"
+        });
+      }
+
+      console.log(`Task ${popupMode === "Submit" ? "submitted" : "updated"} successfully`);
+    } catch (err) {
+      console.error("Error submitting/updating task:", err);
+      alert("Failed to submit update: " + err.message);
     }
 
     setPopupOpen(false);
@@ -218,22 +180,34 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   const startIndex = (currentPage - 1) * rowsPerPage;
   const paginatedTasks = filteredTasks.slice(startIndex, startIndex + rowsPerPage);
 
-  // ⭐ CHECK IF TASK IS ASSIGNED TO CURRENT USER
+  // ⭐ CHECK IF TASK IS ASSIGNED TO CURRENT USER (Matching on email, sanitized email, or UID)
   const isTaskAssignedToUser = (task) => {
-    if (!currentUserId) return false;
+    if (!currentUser) return false;
+
+    const currentEmail = currentUser.email || "";
+    const currentUserId = currentUser.id || currentUser.uid || "";
+    const currentSanitizedEmail = currentEmail.replace(/\./g, "_");
 
     return (
       task.assignedTo &&
       (Array.isArray(task.assignedTo)
         ? task.assignedTo.some((user) => {
             if (typeof user === "object") {
-              return (user.id || user._id) === currentUserId;
+              const uEmail = user.email || (user.id && user.id.includes("@") ? user.id : "");
+              const uSanitizedEmail = user.id || "";
+              return (
+                (user.uid && user.uid === currentUserId) ||
+                (uEmail && uEmail.toLowerCase() === currentEmail.toLowerCase()) ||
+                (uSanitizedEmail && uSanitizedEmail.toLowerCase() === currentSanitizedEmail.toLowerCase())
+              );
             }
-            return user === currentUserId;
+            return (
+              user === currentUserId ||
+              user === currentEmail ||
+              user === currentSanitizedEmail
+            );
           })
-        : typeof task.assignedTo === "object"
-          ? (task.assignedTo.id || task.assignedTo._id) === currentUserId
-          : task.assignedTo === currentUserId)
+        : false)
     );
   };
 

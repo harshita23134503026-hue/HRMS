@@ -5,24 +5,8 @@ import Nember from "../Nember/Nember";
 import Task from "../Nember/Task";
 import Submit from "../Basic/submit";
 import AssignTask from "../../pages/AssignTask";
-
-// ─── Mock Data ───────────────────────────────────────────────
-const MOCK_PROJECT = {
-  id: "1",
-  projectName: "Website Redesign",
-  description:
-    "Complete overhaul of the company website including a new design system, improved performance, and accessibility upgrades.",
-  startDate: "2026-04-01",
-  endDate: "2026-06-15",
-  team: ["Olivia Martin", "Jackson Lee", "Sophia Brown", "Ethan Wilson", "Ava Johnson"],
-  participantDetails: [
-    { id: "1", name: "Olivia Martin", role: "Frontend Developer" },
-    { id: "2", name: "Jackson Lee", role: "Backend Developer" },
-    { id: "3", name: "Sophia Brown", role: "UI/UX Designer" },
-    { id: "4", name: "Ethan Wilson", role: "Project Manager" },
-    { id: "5", name: "Ava Johnson", role: "QA Engineer" },
-  ],
-};
+import { db, getUserFromToken } from "../../firebase";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 
 const ProjectPage = () => {
   const { projectId } = useParams();
@@ -35,22 +19,43 @@ const ProjectPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Frontend-only admin toggle (set false to hide Submit / + Add Task)
-  const [isAdmin] = useState(true);
+  // Dynamic admin check matching role-based permissions
+  const currentUser = getUserFromToken();
+  const currentRole = currentUser?.role?.toLowerCase() || "member";
+  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+
   const [openSubmitPopup, setOpenSubmitPopup] = useState(false);
   const [showAssignTask, setShowAssignTask] = useState(false);
 
-  // LOAD MOCK PROJECT (simulates a fetch delay)
+  // LOAD PROJECT FROM FIRESTORE
   useEffect(() => {
+    if (!projectId) return;
     setLoading(true);
 
-    const timer = setTimeout(() => {
-      setProject({ ...MOCK_PROJECT, id: projectId });
-      setError(null);
+    const unsubscribe = onSnapshot(doc(db, "project", projectId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setProject({
+          id: docSnap.id,
+          projectName: data.title || "", // Map Firestore title to UI projectName
+          description: data.description || "",
+          startDate: data.startDate || "",
+          endDate: data.endDate || "",
+          team: data.team || [],
+          participantDetails: data.participantDetails || []
+        });
+        setError(null);
+      } else {
+        setError("Project not found");
+      }
       setLoading(false);
-    }, 600);
+    }, (err) => {
+      console.error("Error fetching project doc: ", err);
+      setError("Failed to fetch project details");
+      setLoading(false);
+    });
 
-    return () => clearTimeout(timer);
+    return () => unsubscribe();
   }, [projectId]);
 
   const formatDate = (dateString) => {
@@ -110,9 +115,8 @@ const ProjectPage = () => {
               <img
                 key={`${member}-${index}`}
                 src={`https://i.pravatar.cc/150?img=${index + 1}`}
-                className={`w-8 h-8 rounded-full border-2 border-white ${
-                  index !== 0 ? "-ml-2" : ""
-                }`}
+                className={`w-8 h-8 rounded-full border-2 border-white ${index !== 0 ? "-ml-2" : ""
+                  }`}
                 alt={`Team member ${index}`}
               />
             ))}
@@ -173,22 +177,20 @@ const ProjectPage = () => {
           <div className="flex gap-6">
             <button
               onClick={() => setActiveTab("task")}
-              className={`pb-1 text-sm font-medium ${
-                activeTab === "task"
-                  ? "border-b-2 border-blue-500 text-blue-600"
-                  : "text-gray-500"
-              }`}
+              className={`pb-1 text-sm font-medium ${activeTab === "task"
+                ? "border-b-2 border-blue-500 text-blue-600"
+                : "text-gray-500"
+                }`}
             >
               Tasks
             </button>
 
             <button
               onClick={() => setActiveTab("member")}
-              className={`pb-1 text-sm font-medium ${
-                activeTab === "member"
-                  ? "border-b-2 border-blue-500 text-blue-600"
-                  : "text-gray-500"
-              }`}
+              className={`pb-1 text-sm font-medium ${activeTab === "member"
+                ? "border-b-2 border-blue-500 text-blue-600"
+                : "text-gray-500"
+                }`}
             >
               Members
             </button>
@@ -213,6 +215,7 @@ const ProjectPage = () => {
         {showAssignTask ? (
           <AssignTask
             projectId={projectId}
+            projectParticipants={project.participantDetails}
             onSuccess={() => setShowAssignTask(false)}
             onCancel={() => setShowAssignTask(false)}
           />
@@ -226,8 +229,22 @@ const ProjectPage = () => {
       {/* SUBMIT POPUP */}
       {openSubmitPopup && (
         <Submit
+          isOpen={openSubmitPopup}
           onClose={() => setOpenSubmitPopup(false)}
-          projectId={projectId}
+          title={`Submit Project Completion - ${project.projectName}`}
+          taskId={projectId}
+          onSubmitTask={async (projId) => {
+            try {
+              await updateDoc(doc(db, "project", projId), {
+                status: "completed",
+                progress: 100
+              });
+              setOpenSubmitPopup(false);
+            } catch (err) {
+              console.error("Error submitting project:", err);
+              alert("Failed to submit project: " + err.message);
+            }
+          }}
         />
       )}
     </div>

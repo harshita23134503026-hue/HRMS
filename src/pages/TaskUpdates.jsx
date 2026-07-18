@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { db } from "../firebase";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 // ─── Local Helper Functions (Replaces dataMapper utils) ─────────────
 const getStatusColor = (status) => {
@@ -16,7 +18,6 @@ const getStatusColor = (status) => {
 const formatDate = (value) => {
   if (!value) return "";
   try {
-    // Handle ISO strings or timestamps
     const d = new Date(value);
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   } catch (err) {
@@ -40,52 +41,6 @@ const formatDateTime = (value) => {
   }
 };
 
-// ─── Mock Data Generator ───────────────────────────────────────────
-const getMockTask = (id) => {
-  // Generate deterministic mock data based on ID length to vary appearance slightly
-  const isBigProject = id.length > 5;
-  
-  return {
-    id: id,
-    description: `${isBigProject ? "Website Redesign Phase 2" : "Fix Login Bug"} - ${new Date().getFullYear()}`,
-    status: ["Completed", "In Progress", "Pending"][Math.floor(Math.random() * 3)],
-    startDate: new Date(Date.now() - 86400000 * 10).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 10).toISOString(),
-    assignedTo: [
-      {
-        id: "user-1",
-        name: ["Alice Johnson", "Bob Smith", "Charlie Davis"][Math.floor(Math.random() * 3)]
-      }
-    ],
-    priority: Math.random() > 0.5 ? "High" : "Medium",
-    notes: "Client feedback pending for final approval."
-  };
-};
-
-const getMockUpdates = (taskId, count = 5) => {
-  const updates = [];
-  const users = [
-    { name: "Alice Johnson", color: "blue" },
-    { name: "Bob Smith", color: "purple" },
-    { name: "Charlie Davis", color: "green" },
-    { name: "Diana Prince", color: "orange" }
-  ];
-
-  for (let i = 0; i < count; i++) {
-    const user = users[Math.floor(Math.random() * users.length)];
-    const daysAgo = i * 2;
-    const updateDate = new Date(Date.now() - daysAgo * 86400000);
-    
-    updates.push({
-      id: `upd-${taskId}-${i}`,
-      createdByUser: { name: user.name },
-      createdAt: updateDate.toISOString(),
-      note: `This is mock update number ${count - i}. Work has been completed on the assigned section.`,
-    });
-  }
-  return updates;
-};
-
 const TaskUpdates = () => {
   const { projectId, taskId } = useParams();
   const navigate = useNavigate();
@@ -95,11 +50,12 @@ const TaskUpdates = () => {
   const taskFromState = location.state?.task || null;
 
   const [task, setTask] = useState(taskFromState ? taskFromState : null);
+  const [project, setProject] = useState(null);
   const [updates, setUpdates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Simulate data fetching
+  // Fetch real task, project, and update log data from Firestore
   const fetchData = async () => {
     if (!taskId) {
       setError("Task ID is missing");
@@ -111,17 +67,43 @@ const TaskUpdates = () => {
     setError(null);
 
     try {
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // 1. Fetch parent project details
+      if (projectId) {
+        const projectDoc = await getDoc(doc(db, "project", projectId));
+        if (projectDoc.exists()) {
+          setProject({ id: projectDoc.id, ...projectDoc.data() });
+        }
+      }
 
-      // Determine data source: State (passed via navigation) > Local Mock
-      const sourceTask = taskFromState || getMockTask(taskId);
-      
-      setTask(sourceTask);
-      setUpdates(getMockUpdates(taskId));
+      // 2. Fetch task details from database
+      const taskDoc = await getDoc(doc(db, "tasks", taskId));
+      if (taskDoc.exists()) {
+        setTask({ id: taskDoc.id, ...taskDoc.data() });
+      } else if (taskFromState) {
+        setTask(taskFromState);
+      } else {
+        setError("Task details not found");
+        setLoading(false);
+        return;
+      }
+
+      // 3. Fetch updates associated with this task
+      const q = query(
+        collection(db, "updates"),
+        where("taskId", "==", taskId)
+      );
+      const querySnapshot = await getDocs(q);
+      const updatesList = [];
+      querySnapshot.forEach((doc) => {
+        updatesList.push({ id: doc.id, ...doc.data() });
+      });
+
+      // Sort client-side by date descending
+      updatesList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setUpdates(updatesList);
     } catch (err) {
-      console.error("Error loading task data", err);
-      setError("Failed to load task details");
+      console.error("Error loading task data:", err);
+      setError("Failed to load task details and updates");
     } finally {
       setLoading(false);
     }
@@ -160,10 +142,30 @@ const TaskUpdates = () => {
           )}
         </div>
 
+        {/* Breadcrumb Hierarchy */}
+        {project && (
+          <nav className="text-xs text-gray-500 flex items-center gap-2 px-1">
+            <span className="hover:underline cursor-pointer" onClick={() => navigate('/projects')}>Projects</span>
+            <span>/</span>
+            <span className="hover:underline cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)}>{project.title}</span>
+            <span>/</span>
+            <span className="font-semibold text-gray-700">Tasks</span>
+            <span>/</span>
+            <span className="font-semibold text-gray-700 truncate max-w-[200px]">{task?.description || "Task"}</span>
+            <span>/</span>
+            <span className="text-gray-400">Updates</span>
+          </nav>
+        )}
+
         {/* Task Detail Card */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
+              {project && (
+                <div className="mb-2 text-xs font-semibold text-blue-600 uppercase tracking-wider">
+                  Project: {project.title}
+                </div>
+              )}
               <p className="text-xs uppercase tracking-wide text-gray-500">Task</p>
               <h1 className="text-xl font-semibold text-gray-900 mt-1">
                 {task?.description || "Task Updates"}
