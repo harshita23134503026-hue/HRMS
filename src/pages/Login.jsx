@@ -17,8 +17,8 @@ const Login = () => {
   const navigate = useNavigate();
 
   // Default sign-in values for demo purposes
-  const [signinemail, setsigninEmail] = useState("23134503027@gmail.com");
-  const [signinpassword, setsigninPassword] = useState("test3456");
+  const [signinemail, setsigninEmail] = useState("test07@gmail.com");
+  const [signinpassword, setsigninPassword] = useState("test0987");
 
   const [form, setForm] = useState(1);
   const [error, setError] = useState("");

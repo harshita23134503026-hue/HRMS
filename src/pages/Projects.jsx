@@ -215,7 +215,8 @@ export default function ProjectsView() {
   // Dynamic role-based permissions
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager","member","Member"].includes(currentRole) ||
+  (Array.isArray(currentUser?.childrenuid) && currentUser.childrenuid.length > 0);
 
   const [pendingProjectsApi, setPendingProjectsApi] = useState([]);
   const [inProgressProjectsApi, setInProgressProjectsApi] = useState([]);

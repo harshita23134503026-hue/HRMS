@@ -7,10 +7,140 @@ import {
   Clock,
   FileText,
   MapPin,
-  Calendar,
 } from 'lucide-react';
 
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../firebase'; // Update path if needed
+
+const hourOptions = Array.from({ length: 12 }, (_, index) =>
+  String(index + 1)
+);
+
+const minuteOptions = Array.from({ length: 60 }, (_, index) =>
+  String(index).padStart(2, '0')
+);
+
+// ─── Time Helpers ───
+
+const formatTime = (hour, minute, period) => {
+  if (!hour || minute === '' || !period) {
+    return '';
+  }
+
+  return `${hour}:${minute} ${period}`;
+};
+
+const convertToMinutes = (hour, minute, period) => {
+  if (!hour || minute === '' || !period) {
+    return null;
+  }
+
+  let hourIn24Format = Number(hour);
+
+  if (period === 'AM' && hourIn24Format === 12) {
+    hourIn24Format = 0;
+  }
+
+  if (period === 'PM' && hourIn24Format !== 12) {
+    hourIn24Format += 12;
+  }
+
+  return hourIn24Format * 60 + Number(minute);
+};
+
+const calculateDuration = (task) => {
+  const startMinutes = convertToMinutes(
+    task.startHour,
+    task.startMinute,
+    task.startPeriod
+  );
+
+  const endMinutes = convertToMinutes(
+    task.endHour,
+    task.endMinute,
+    task.endPeriod
+  );
+
+  if (startMinutes === null || endMinutes === null) {
+    return '';
+  }
+
+  let totalMinutes = endMinutes - startMinutes;
+
+  // If the end time is before the start time,
+  // treat it as an overnight task.
+  if (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
+};
+
+// ─── Time Selector Component ───
+
+const TimeSelector = ({
+  hour,
+  minute,
+  period,
+  onHourChange,
+  onMinuteChange,
+  onPeriodChange,
+}) => {
+  return (
+    <div className="flex items-center gap-1">
+      {/* Hour: 1 to 12 */}
+      <select
+        value={hour}
+        onChange={(e) => onHourChange(e.target.value)}
+        className="w-14 border border-gray-200 rounded-md px-1 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+        aria-label="Hour"
+      >
+        <option value="">HH</option>
+
+        {hourOptions.map((item) => (
+          <option key={item} value={item}>
+            {item}
+          </option>
+        ))}
+      </select>
+
+      <span className="text-gray-500 font-medium">:</span>
+
+      {/* Minutes: 00 to 59 */}
+      <select
+        value={minute}
+        onChange={(e) => onMinuteChange(e.target.value)}
+        className="w-14 border border-gray-200 rounded-md px-1 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+        aria-label="Minute"
+      >
+        <option value="">MM</option>
+
+        {minuteOptions.map((item) => (
+          <option key={item} value={item}>
+            {item}
+          </option>
+        ))}
+      </select>
+
+      {/* AM / PM */}
+      <select
+        value={period}
+        onChange={(e) => onPeriodChange(e.target.value)}
+        className="w-16 border border-gray-200 rounded-md px-1 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+        aria-label="AM or PM"
+      >
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+};
+
 // ─── Single Task Entry Component ───
+
 const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
   const update = (field, value) => {
     onChange(index, field, value);
@@ -21,9 +151,13 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <h3 className="text-sm font-bold text-gray-900">TASK {index + 1}</h3>
+          <h3 className="text-sm font-bold text-gray-900">
+            TASK {index + 1}
+          </h3>
+
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span>Choose how you want to set task timing:</span>
+
             <button
               onClick={() => update('timingMode', 'range')}
               className={`px-3 py-1 rounded border text-xs font-medium transition ${
@@ -34,6 +168,7 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
             >
               Time Range
             </button>
+
             <button
               onClick={() => update('timingMode', 'duration')}
               className={`px-3 py-1 rounded border text-xs font-medium transition ${
@@ -46,6 +181,7 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
             </button>
           </div>
         </div>
+
         {canRemove && (
           <button
             onClick={() => onRemove(index)}
@@ -63,11 +199,13 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Task Title
           </label>
+
           <div className="relative">
             <FileText
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
             />
+
             <input
               type="text"
               value={task.taskTitle}
@@ -77,15 +215,18 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
             />
           </div>
         </div>
+
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Work Summary
           </label>
+
           <div className="relative">
             <FileText
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
             />
+
             <input
               type="text"
               value={task.workSummary}
@@ -97,54 +238,75 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
         </div>
       </div>
 
-      {/* Row 2: Start Time + End Time + Activity + Location */}
+      {/* Time Range Mode */}
       {task.timingMode === 'range' ? (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {/* Start Time */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Start Time
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={task.startTime}
-                onChange={(e) => update('startTime', e.target.value)}
-                placeholder="hh:mm aa"
-                className="w-full border border-gray-200 rounded-md pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <Clock
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-            </div>
+
+            <TimeSelector
+              hour={task.startHour}
+              minute={task.startMinute}
+              period={task.startPeriod}
+              onHourChange={(value) => update('startHour', value)}
+              onMinuteChange={(value) => update('startMinute', value)}
+              onPeriodChange={(value) => update('startPeriod', value)}
+            />
           </div>
+
+          {/* End Time */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               End Time
             </label>
+
+            <TimeSelector
+              hour={task.endHour}
+              minute={task.endMinute}
+              period={task.endPeriod}
+              onHourChange={(value) => update('endHour', value)}
+              onMinuteChange={(value) => update('endMinute', value)}
+              onPeriodChange={(value) => update('endPeriod', value)}
+            />
+          </div>
+
+          {/* Calculated Duration */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Duration
+            </label>
+
             <div className="relative">
-              <input
-                type="text"
-                value={task.endTime}
-                onChange={(e) => update('endTime', e.target.value)}
-                placeholder="hh:mm aa"
-                className="w-full border border-gray-200 rounded-md pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
               <Clock
                 size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+
+              <input
+                type="text"
+                value={task.duration}
+                readOnly
+                placeholder="Auto calculated"
+                className="w-full border border-gray-200 rounded-md pl-9 pr-3 py-2 text-sm text-gray-600 bg-gray-50 focus:outline-none"
               />
             </div>
           </div>
+
+          {/* Activity */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Activity
             </label>
+
             <div className="relative">
               <FileText
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
+
               <input
                 type="text"
                 value={task.activity}
@@ -154,15 +316,19 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
               />
             </div>
           </div>
+
+          {/* Location */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Location
             </label>
+
             <div className="relative">
               <MapPin
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
+
               <input
                 type="text"
                 value={task.location}
@@ -174,17 +340,19 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
           </div>
         </div>
       ) : (
-        /* Duration mode */
+        /* Duration Mode */
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Duration (hours)
             </label>
+
             <div className="relative">
               <Clock
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
+
               <input
                 type="text"
                 value={task.duration}
@@ -194,15 +362,18 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
               />
             </div>
           </div>
+
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Activity
             </label>
+
             <div className="relative">
               <FileText
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
+
               <input
                 type="text"
                 value={task.activity}
@@ -212,15 +383,18 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
               />
             </div>
           </div>
+
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Location
             </label>
+
             <div className="relative">
               <MapPin
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
+
               <input
                 type="text"
                 value={task.location}
@@ -230,15 +404,17 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
               />
             </div>
           </div>
+
           <div />
         </div>
       )}
 
-      {/* Row 3: Description (full width) */}
+      {/* Description */}
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">
           Description
         </label>
+
         <textarea
           rows={2}
           value={task.description}
@@ -251,35 +427,91 @@ const TaskEntry = ({ index, task, onChange, onRemove, canRemove }) => {
   );
 };
 
-// ─── Default blank task ───
+// ─── Default Blank Task ───
+
 const blankTask = () => ({
   timingMode: 'range',
   taskTitle: '',
   workSummary: '',
+
+  // Saved to Firestore in 12-hour format, for example: 09:30 AM
   startTime: '',
   endTime: '',
+
+  // Used only by the time selector UI
+  startHour: '',
+  startMinute: '',
+  startPeriod: 'AM',
+  endHour: '',
+  endMinute: '',
+  endPeriod: 'AM',
+
+  // Automatically set in range mode
   duration: '',
+
   activity: '',
   location: '',
   description: '',
 });
 
-// ─── Main AddTaskPage ───
+// ─── Main Add Task Page ───
+
 const AddTaskPage = () => {
   const navigate = useNavigate();
   const { date } = useParams();
 
   const isValidDate = date && date !== 'new';
-  const defaultDate = isValidDate ? date : new Date().toISOString().split('T')[0];
+
+  const defaultDate = isValidDate
+    ? date
+    : new Date().toISOString().split('T')[0];
 
   const [workDate, setWorkDate] = useState(defaultDate);
   const [tasks, setTasks] = useState([blankTask()]);
 
-  // Update a single field in a task
+  // Update a single task field and calculate duration when time changes
   const handleTaskChange = (index, field, value) => {
-    const updated = [...tasks];
-    updated[index] = { ...updated[index], [field]: value };
-    setTasks(updated);
+    const updatedTasks = [...tasks];
+
+    const updatedTask = {
+      ...updatedTasks[index],
+      [field]: value,
+    };
+
+    const timeFields = [
+      'startHour',
+      'startMinute',
+      'startPeriod',
+      'endHour',
+      'endMinute',
+      'endPeriod',
+    ];
+
+    // Create the text values stored in Firestore:
+    // Example: "9:05 AM"
+    updatedTask.startTime = formatTime(
+      updatedTask.startHour,
+      updatedTask.startMinute,
+      updatedTask.startPeriod
+    );
+
+    updatedTask.endTime = formatTime(
+      updatedTask.endHour,
+      updatedTask.endMinute,
+      updatedTask.endPeriod
+    );
+
+    // Recalculate duration whenever a time selector is changed
+    // or when Time Range mode is selected.
+    if (
+      timeFields.includes(field) ||
+      (field === 'timingMode' && value === 'range')
+    ) {
+      updatedTask.duration = calculateDuration(updatedTask);
+    }
+
+    updatedTasks[index] = updatedTask;
+    setTasks(updatedTasks);
   };
 
   // Add a new task entry
@@ -287,17 +519,77 @@ const AddTaskPage = () => {
     setTasks([...tasks, blankTask()]);
   };
 
-  // Remove a task entry
+  // Remove one task entry
   const removeEntry = (index) => {
-    setTasks(tasks.filter((_, i) => i !== index));
+    setTasks(tasks.filter((_, taskIndex) => taskIndex !== index));
   };
 
-  // Save
-  const handleSave = () => {
-    const payload = { workDate, tasks };
-    console.log('Saving timesheet:', payload);
-    // TODO: API call
-    navigate('/timesheet');
+  // Save to Firestore
+  const handleSave = async () => {
+    try {
+      const user = auth.currentUser;
+
+      if (!user) {
+        alert('Please log in before saving your timesheet.');
+        return;
+      }
+
+      // Remove selector-only values before saving to Firestore.
+      // The saved task fields remain the same as your original schema.
+      const tasksToSave = tasks.map((task) => ({
+        timingMode: task.timingMode,
+        taskTitle: task.taskTitle,
+        workSummary: task.workSummary,
+        startTime: formatTime(
+          task.startHour,
+          task.startMinute,
+          task.startPeriod
+        ),
+        endTime: formatTime(
+          task.endHour,
+          task.endMinute,
+          task.endPeriod
+        ),
+        duration:
+          task.timingMode === 'range'
+            ? calculateDuration(task)
+            : task.duration,
+        activity: task.activity,
+        location: task.location,
+        description: task.description,
+      }));
+
+      // One document only for every user:
+      // timesheet/{user.uid}
+      const timesheetRef = doc(db, 'timesheet', user.uid);
+
+      await setDoc(
+        timesheetRef,
+        {
+          userId: user.uid,
+
+          // Each date is stored in the same user document.
+          entries: {
+            [workDate]: {
+              workDate,
+              tasks: tasksToSave,
+              updatedAt: serverTimestamp(),
+            },
+          },
+
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        }
+      );
+
+      console.log('Timesheet saved successfully');
+      navigate('/timesheet');
+    } catch (error) {
+      console.error('Error saving timesheet:', error);
+      alert('Unable to save the timesheet. Please try again.');
+    }
   };
 
   return (
@@ -307,6 +599,7 @@ const AddTaskPage = () => {
         <span className="inline-flex items-center gap-2 bg-blue-500 text-white text-xs font-semibold px-4 py-1.5 rounded-md">
           Add Timesheet Entry
         </span>
+
         <button
           onClick={() => navigate(-1)}
           className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition"
@@ -322,6 +615,7 @@ const AddTaskPage = () => {
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Work Date
           </label>
+
           <div className="relative w-48">
             <input
               type="date"
@@ -333,10 +627,10 @@ const AddTaskPage = () => {
         </div>
 
         {/* Task Entries */}
-        {tasks.map((task, idx) => (
+        {tasks.map((task, index) => (
           <TaskEntry
-            key={idx}
-            index={idx}
+            key={index}
+            index={index}
             task={task}
             onChange={handleTaskChange}
             onRemove={removeEntry}
@@ -354,6 +648,7 @@ const AddTaskPage = () => {
           <Plus size={18} />
           Add Entry
         </button>
+
         <button
           onClick={handleSave}
           className="px-8 py-2 rounded-md bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition shadow-sm"

@@ -1,105 +1,11 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { getUserFromToken } from "../firebase"
+import { getUserFromToken, db } from "../firebase"
 import { TrendingUp, Video, Search, Plus, MonitorX } from "lucide-react"
 import { ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-
-const MOCK_DASHBOARD_DATA = {
-  totalProjects: 24,
-  endedProjects: 8,
-  runningProjects: 11,
-  pendingProjects: 5,
-
-  projectProgress: {
-    completed: 41,
-    inProgress: 35,
-    pending: 24,
-  },
-
-  reminders: [
-    {
-      title: "Weekly Team Meeting",
-      time: "10:30 AM",
-    },
-  ],
-
-  projects: [
-    {
-      id: 1,
-      title: "Website Redesign",
-      endDate: "2026-04-15",
-      color: "#3b82f6",
-    },
-    {
-      id: 2,
-      title: "Mobile Application",
-      endDate: "2026-05-02",
-      color: "#22c55e",
-    },
-    {
-      id: 3,
-      title: "Marketing Campaign",
-      endDate: "2026-04-28",
-      color: "#f97316",
-    },
-    {
-      id: 4,
-      title: "Dashboard UI Update",
-      endDate: "2026-05-10",
-      color: "#a855f7",
-    },
-  ],
-
-  teamMembers: [
-    {
-      id: 1,
-      name: "Olivia Martin",
-      email: "olivia@example.com",
-      avatar: "https://ui-avatars.com/api/?name=Olivia+Martin&background=2563eb&color=fff",
-      projectTasks: [
-        {
-          projectTitle: "Website Redesign",
-          tasks: [
-            { title: "Homepage UI", status: "Completed" },
-            { title: "Navigation Menu", status: "In Progress" },
-          ],
-        },
-      ],
-    },
-    {
-      id: 2,
-      name: "Jackson Lee",
-      email: "jackson@example.com",
-      avatar: "https://ui-avatars.com/api/?name=Jackson+Lee&background=16a34a&color=fff",
-      projectTasks: [
-        {
-          projectTitle: "Mobile Application",
-          tasks: [
-            { title: "Login Screen", status: "Pending" },
-            { title: "Profile Screen", status: "Pending" },
-          ],
-        },
-      ],
-    },
-    {
-      id: 3,
-      name: "Sophia Brown",
-      email: "sophia@example.com",
-      avatar: "https://ui-avatars.com/api/?name=Sophia+Brown&background=9333ea&color=fff",
-      projectTasks: [
-        {
-          projectTitle: "Marketing Campaign",
-          tasks: [
-            { title: "Banner Design", status: "Completed" },
-            { title: "Email Templates", status: "Completed" },
-          ],
-        },
-      ],
-    },
-  ],
-}
+import { collection, doc, getDoc, getDocs } from "firebase/firestore"
 
 const STATIC_PROJECT_ANALYTICS = [
   { name: "Sun", value: 25 },
@@ -111,24 +17,138 @@ const STATIC_PROJECT_ANALYTICS = [
   { name: "Sat", value: 80 },
 ]
 
-const getMemberStatus = (member) => {
-  const tasks = member?.projectTasks?.[0]?.tasks || []
+const PROJECT_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#a855f7"]
 
-  if (!tasks.length) {
+const encodeEmailForFirestore = (email = "") => {
+  return email.toLowerCase().replace(/\./g, "_")
+}
+
+const decodeParticipantEmail = (email = "") => {
+  return email.replace(/_/g, ".")
+}
+
+const normalizeStatus = (status = "") => {
+  const value = String(status).toLowerCase().trim()
+
+  if (value === "completed" || value === "complete") return "completed"
+
+  if (
+    value === "progress" ||
+    value === "inprogress" ||
+    value === "in_progress" ||
+    value === "in progress" ||
+    value === "ongoing" ||
+    value === "running"
+  ) {
+    return "progress"
+  }
+
+  return "pending"
+}
+
+const getProjectStatus = (project) => {
+  return normalizeStatus(project?.status)
+}
+
+const getStatusLabel = (status = "") => {
+  const normalizedStatus = normalizeStatus(status)
+
+  if (normalizedStatus === "completed") return "Completed"
+  if (normalizedStatus === "progress") return "Ongoing"
+
+  return "Pending"
+}
+
+const getStatusClassName = (status = "") => {
+  const normalizedStatus = normalizeStatus(status)
+
+  if (normalizedStatus === "completed") {
+    return "bg-green-100 text-green-700"
+  }
+
+  if (normalizedStatus === "progress") {
+    return "bg-yellow-100 text-yellow-700"
+  }
+
+  return "bg-red-100 text-red-700"
+}
+
+const getProjectTitle = (project) => {
+  return (
+    project?.title ||
+    project?.projectTitle ||
+    project?.projectName ||
+    project?.name ||
+    "Untitled Project"
+  )
+}
+
+const getProjectEndDate = (project) => {
+  return project?.endDate || project?.dueDate || project?.deadline || null
+}
+
+const formatFirestoreDate = (value) => {
+  if (!value) return "No due date"
+
+  if (value?.toDate) {
+    return value.toDate().toLocaleDateString()
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "No due date"
+  }
+
+  return date.toLocaleDateString()
+}
+
+const getParticipantEmail = (participant) => {
+  if (typeof participant === "string") {
+    return participant.toLowerCase()
+  }
+
+  return participant?.email?.toLowerCase() || ""
+}
+
+const getUserDisplayName = (user, fallbackEmail = "") => {
+  return (
+    user?.name ||
+    user?.displayName ||
+    user?.fullName ||
+    user?.username ||
+    fallbackEmail ||
+    "Unknown User"
+  )
+}
+
+const getAvatarUrl = (name, email) => {
+  const avatarName = encodeURIComponent(name || email || "User")
+  return `https://ui-avatars.com/api/?name=${avatarName}&background=2563eb&color=fff`
+}
+
+const getMemberStatus = (member) => {
+  const tasks = member?.projectTasks?.flatMap((projectTask) => {
+    return projectTask?.tasks || []
+  })
+
+  if (!tasks?.length) {
     return {
       label: "No Tasks",
       className: "bg-gray-100 text-gray-700",
     }
   }
 
-  if (tasks.every((task) => task.status === "Completed")) {
+  const statuses = tasks.map((task) => normalizeStatus(task.rawStatus || task.status))
+
+  if (statuses.every((status) => status === "completed")) {
     return {
       label: "Completed",
       className: "bg-green-100 text-green-700",
     }
   }
 
-  if (tasks.some((task) => task.status === "Completed" || task.status === "In Progress")) {
+  if (statuses.some((status) => status === "progress")) {
     return {
       label: "Ongoing",
       className: "bg-yellow-100 text-yellow-700",
@@ -152,23 +172,38 @@ const Dashboard = () => {
   const [searchQuery, setSearchQuery] = useState("")
   const [elapsedTime, setElapsedTime] = useState(2 * 3600 + 18 * 60 + 42)
 
+  const [loading, setLoading] = useState(true)
+  const [projects, setProjects] = useState([])
+  const [users, setUsers] = useState([])
+  const [currentUserProfile, setCurrentUserProfile] = useState(null)
+
   const appsBtnRef = useRef(null)
   const popupRef = useRef(null)
 
-  // User Role-based permissions.
   const currentUser = getUserFromToken()
-  const currentRole = currentUser?.role?.toLowerCase() || "member"
+  const currentUserEmail = currentUser?.email?.toLowerCase() || ""
+  const currentUserEncodedEmail = encodeEmailForFirestore(currentUserEmail)
 
-  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)
-  const canCreateUser = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)
-  const canViewUsers = true
+  const currentRole =
+    currentUserProfile?.role ||
+    currentUser?.role ||
+    currentUser?.userRole ||
+    "member"
+
+  const isAdmin = String(currentRole).toLowerCase() === "admin"
+
+  const canCreateProject = isAdmin
+  const canCreateUser = isAdmin
+  const canViewUsers = isAdmin
   const isUserPanelOpen = true
 
   const onCreateProject = () => {
+    if (!isAdmin) return
     navigate("/create-project")
   }
 
   const onAddMember = () => {
+    if (!isAdmin) return
     navigate("/team")
   }
 
@@ -182,6 +217,98 @@ const Dashboard = () => {
       "0"
     )}:${String(secs).padStart(2, "0")}`
   }
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true)
+
+        let loggedInUserProfile = null
+
+        if (currentUserEmail) {
+          const userDocRef = doc(db, "users", currentUserEmail)
+          const userDocSnap = await getDoc(userDocRef)
+
+          if (userDocSnap.exists()) {
+            loggedInUserProfile = {
+              id: userDocSnap.id,
+              email: userDocSnap.data()?.email || userDocSnap.id,
+              ...userDocSnap.data(),
+            }
+          }
+        }
+
+        setCurrentUserProfile(loggedInUserProfile)
+
+        const role =
+          loggedInUserProfile?.role ||
+          currentUser?.role ||
+          currentUser?.userRole ||
+          "member"
+
+        const adminAccess = String(role).toLowerCase() === "admin"
+
+        const projectsSnapshot = await getDocs(collection(db, "projects"))
+
+        const allProjects = projectsSnapshot.docs.map((projectDoc) => ({
+          id: projectDoc.id,
+          ...projectDoc.data(),
+        }))
+
+        const visibleProjects = adminAccess
+          ? allProjects
+          : allProjects.filter((project) => {
+              const participants = Array.isArray(project.participants)
+                ? project.participants
+                : []
+
+              return participants.some((participant) => {
+                const participantEmail = getParticipantEmail(participant)
+
+                return (
+                  participantEmail === currentUserEncodedEmail ||
+                  participantEmail === currentUserEmail
+                )
+              })
+            })
+
+        setProjects(visibleProjects)
+
+        if (adminAccess) {
+          const usersSnapshot = await getDocs(collection(db, "users"))
+
+          const allUsers = usersSnapshot.docs.map((userDoc) => ({
+            id: userDoc.id,
+            email: userDoc.data()?.email || userDoc.id,
+            ...userDoc.data(),
+          }))
+
+          setUsers(allUsers)
+        } else {
+          if (loggedInUserProfile) {
+            setUsers([loggedInUserProfile])
+          } else if (currentUserEmail) {
+            setUsers([
+              {
+                id: currentUserEmail,
+                email: currentUserEmail,
+                name: currentUser?.name || currentUser?.displayName || currentUserEmail,
+                role: "member",
+              },
+            ])
+          } else {
+            setUsers([])
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDashboardData()
+  }, [currentUserEmail, currentUserEncodedEmail])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -222,20 +349,125 @@ const Dashboard = () => {
     }
   }, [showAppsPopup])
 
-  const filteredTeamMembers = MOCK_DASHBOARD_DATA.teamMembers.filter((member) =>
+  const projectProgress = useMemo(() => {
+    let completed = 0
+    let progress = 0
+    let pending = 0
+
+    projects.forEach((project) => {
+      const status = getProjectStatus(project)
+
+      if (status === "completed") {
+        completed += 1
+      } else if (status === "progress") {
+        progress += 1
+      } else {
+        pending += 1
+      }
+    })
+
+    return {
+      completed,
+      inProgress: progress,
+      pending,
+    }
+  }, [projects])
+
+  const dashboardCounts = useMemo(() => {
+    const totalProjects = projects.length
+
+    const endedProjects = projects.filter(
+      (project) => getProjectStatus(project) === "completed"
+    ).length
+
+    const runningProjects = projects.filter(
+      (project) => getProjectStatus(project) === "progress"
+    ).length
+
+    const pendingProjects = projects.filter(
+      (project) => getProjectStatus(project) === "pending"
+    ).length
+
+    return {
+      totalProjects,
+      endedProjects,
+      runningProjects,
+      pendingProjects,
+    }
+  }, [projects])
+
+  const teamMembers = useMemo(() => {
+    const membersMap = new Map()
+
+    users.forEach((user) => {
+      const email = user.email || user.id
+      const encodedEmail = encodeEmailForFirestore(email)
+      const name = getUserDisplayName(user, email)
+
+      membersMap.set(encodedEmail, {
+        id: user.id || email,
+        name,
+        email,
+        avatar: user.avatar || user.photoURL || getAvatarUrl(name, email),
+        projectTasks: [],
+      })
+    })
+
+    projects.forEach((project) => {
+      const participants = Array.isArray(project.participants)
+        ? project.participants
+        : []
+
+      participants.forEach((participant) => {
+        const participantEmail = getParticipantEmail(participant)
+
+        if (!participantEmail) return
+
+        const projectStatus = getProjectStatus(project)
+        const decodedEmail = decodeParticipantEmail(participantEmail)
+
+        const existingUser = membersMap.get(participantEmail)
+
+        const userData =
+          existingUser ||
+          {
+            id: participantEmail,
+            name: decodedEmail,
+            email: decodedEmail,
+            avatar: getAvatarUrl(decodedEmail, decodedEmail),
+            projectTasks: [],
+          }
+
+        userData.projectTasks.push({
+          projectTitle: getProjectTitle(project),
+          tasks: [
+            {
+              title: getProjectTitle(project),
+              status: getStatusLabel(projectStatus),
+              rawStatus: projectStatus,
+            },
+          ],
+        })
+
+        membersMap.set(participantEmail, userData)
+      })
+    })
+
+    return Array.from(membersMap.values())
+  }, [users, projects])
+
+  const filteredTeamMembers = teamMembers.filter((member) =>
     member.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   const progressTotal =
-    MOCK_DASHBOARD_DATA.projectProgress.completed +
-    MOCK_DASHBOARD_DATA.projectProgress.inProgress +
-    MOCK_DASHBOARD_DATA.projectProgress.pending
+    projectProgress.completed +
+    projectProgress.inProgress +
+    projectProgress.pending
 
   const completionPercentage =
     progressTotal > 0
-      ? Math.round(
-          (MOCK_DASHBOARD_DATA.projectProgress.completed / progressTotal) * 100
-        )
+      ? Math.round((projectProgress.completed / progressTotal) * 100)
       : 0
 
   const DESKTOP_MIN_WIDTH = 768
@@ -252,6 +484,16 @@ const Dashboard = () => {
           <br />
           Please switch to a tablet or desktop device to continue.
         </p>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-gray-700 text-lg font-medium">
+          Loading dashboard...
+        </div>
       </div>
     )
   }
@@ -376,48 +618,62 @@ const Dashboard = () => {
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
+
           <div className="text-5xl font-bold mb-2 leading-none">
-            {MOCK_DASHBOARD_DATA.totalProjects}
+            {dashboardCounts.totalProjects}
           </div>
+
           <p className="text-xs text-white/80">All company projects</p>
         </div>
 
         <div className="rounded-3xl p-6 relative bg-white border border-gray-200 shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-sm text-gray-800">Ended Projects</h3>
+            <h3 className="font-semibold text-sm text-gray-800">
+              Ended Projects
+            </h3>
             <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>
+
           <div className="text-5xl font-bold mb-2 leading-none text-gray-900">
-            {MOCK_DASHBOARD_DATA.endedProjects}
+            {dashboardCounts.endedProjects}
           </div>
+
           <p className="text-xs text-blue-600">Completed projects</p>
         </div>
 
         <div className="rounded-3xl p-6 relative bg-white border border-gray-200 shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-sm text-gray-800">Running Projects</h3>
+            <h3 className="font-semibold text-sm text-gray-800">
+              Running Projects
+            </h3>
             <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>
+
           <div className="text-5xl font-bold mb-2 leading-none text-gray-900">
-            {MOCK_DASHBOARD_DATA.runningProjects}
+            {dashboardCounts.runningProjects}
           </div>
+
           <p className="text-xs text-blue-600">Active projects</p>
         </div>
 
         <div className="rounded-3xl p-6 relative bg-white border border-gray-200 shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-sm text-gray-800">Pending Projects</h3>
+            <h3 className="font-semibold text-sm text-gray-800">
+              Pending Projects
+            </h3>
             <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>
+
           <div className="text-5xl font-bold mb-2 leading-none text-gray-900">
-            {MOCK_DASHBOARD_DATA.pendingProjects}
+            {dashboardCounts.pendingProjects}
           </div>
+
           <p className="text-xs text-blue-600">Not started</p>
         </div>
       </div>
@@ -459,15 +715,15 @@ const Dashboard = () => {
           className="min-w-[250px] max-w-[310px] w-full flex-1 bg-white p-6 border border-gray-200 shadow-md flex flex-col justify-between"
           style={{ height: "217px", borderRadius: "30px" }}
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Reminders</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            Reminders
+          </h3>
 
           <div>
             <div className="text-blue-600 font-semibold cursor-pointer mb-1">
-              {MOCK_DASHBOARD_DATA.reminders[0].title}
+              Weekly Team Meeting
             </div>
-            <div className="text-gray-500 text-sm mb-4">
-              Time: {MOCK_DASHBOARD_DATA.reminders[0].time}
-            </div>
+            <div className="text-gray-500 text-sm mb-4">Time: 10:30 AM</div>
 
             <a
               href="https://meet.google.com"
@@ -494,6 +750,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-white mb-4 self-start">
             Time Tracker
           </h3>
+
           <div className="text-4xl font-bold tracking-wider font-mono text-white">
             {formatTime(elapsedTime)}
           </div>
@@ -519,23 +776,39 @@ const Dashboard = () => {
 
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="flex flex-col gap-3">
-              {MOCK_DASHBOARD_DATA.projects.map((project) => (
-                <div key={project.id} className="flex items-center gap-3">
-                  <span
-                    className="w-4 h-4 rounded inline-block"
-                    style={{ backgroundColor: project.color }}
-                  />
+              {projects.length > 0 ? (
+                projects.map((project, index) => (
+                  <div key={project.id} className="flex items-center gap-3">
+                    <span
+                      className="w-4 h-4 rounded inline-block"
+                      style={{
+                        backgroundColor:
+                          project.color || PROJECT_COLORS[index % PROJECT_COLORS.length],
+                      }}
+                    />
 
-                  <div className="flex-1">
-                    <div className="font-semibold text-sm text-gray-900">
-                      {project.title}
+                    <div className="flex-1">
+                      <div className="font-semibold text-sm text-gray-900">
+                        {getProjectTitle(project)}
+                      </div>
+
+                      <div className="text-xs text-gray-500">
+                        Due date: {formatFirestoreDate(getProjectEndDate(project))}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Due date: {new Date(project.endDate).toLocaleDateString()}
-                    </div>
+
+                    <span
+                      className={`px-2 py-1 rounded-full text-[10px] font-medium whitespace-nowrap ${getStatusClassName(
+                        project.status
+                      )}`}
+                    >
+                      {getStatusLabel(project.status)}
+                    </span>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-gray-500 text-sm">No projects found</div>
+              )}
             </div>
           </div>
         </div>
@@ -557,15 +830,15 @@ const Dashboard = () => {
                     data={[
                       {
                         name: "Completed",
-                        value: MOCK_DASHBOARD_DATA.projectProgress.completed,
+                        value: projectProgress.completed,
                       },
                       {
                         name: "InProgress",
-                        value: MOCK_DASHBOARD_DATA.projectProgress.inProgress,
+                        value: projectProgress.inProgress,
                       },
                       {
                         name: "Pending",
-                        value: MOCK_DASHBOARD_DATA.projectProgress.pending,
+                        value: projectProgress.pending,
                       },
                     ]}
                     cx="50%"
