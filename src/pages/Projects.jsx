@@ -280,9 +280,9 @@ export default function ProjectsView() {
               </h1>
             </div>
             <div className="grid h-full items-start gap-8 lg:grid-cols-3 md:grid-cols-2 grid-cols-1">
-              <ProjectColumn title="Upcoming" count={pendingProjectsApi.length} projects={pendingProjectsApi} type="Upcoming" canCreateProject={canCreateProject} onCreateProject={() => navigate("/create-project")} onProjectClick={handleProjectClick} />
-              <ProjectColumn title="In Progress" count={inProgressProjectsApi.length} projects={inProgressProjectsApi} type="progress" canCreateProject={canCreateProject} onCreateProject={() => navigate("/create-project")} onProjectClick={handleProjectClick} />
-              <ProjectColumn title="Completed" count={completedProjectsApi.length} projects={completedProjectsApi} type="completed" canCreateProject={canCreateProject} onCreateProject={() => navigate("/create-project")} onProjectClick={handleProjectClick} />
+              <ProjectColumn title="Upcoming" count={pendingProjectsApi.length} projects={pendingProjectsApi} type="Upcoming" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
+              <ProjectColumn title="In Progress" count={inProgressProjectsApi.length} projects={inProgressProjectsApi} type="progress" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
+              <ProjectColumn title="Completed" count={completedProjectsApi.length} projects={completedProjectsApi} type="completed" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
             </div>
           </div>
         </main>
