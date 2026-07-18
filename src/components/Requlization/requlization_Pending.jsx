@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { getUserFromToken } from '../../firebase';
 
 // ─── Mock Regularization Pending Data (Frontend Only) ──────────
 const MOCK_PENDING_REQUESTS = [
@@ -50,10 +51,10 @@ function ReguPendingList() {
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
-  // ─── Mock User Role (Frontend Simulation) ──────────────────────
-  // Hardcoded as 'admin' so users can see action buttons for testing
+  // ─── User Role (Fetched from Token) ──────────────────────
   const currentRole = useMemo(() => {
-    return 'admin'; 
+    const user = getUserFromToken();
+    return user?.role?.toLowerCase() || 'member'; 
   }, []);
 
   const canManageRequests = ['admin', 'sadmin', 'hr', 'hr_manager'].includes(currentRole);

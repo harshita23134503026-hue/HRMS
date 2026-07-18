@@ -3,17 +3,10 @@ import React, { useState, useEffect } from "react";
 import { FaChevronDown } from "react-icons/fa";
 import { useParams, useNavigate } from "react-router-dom";
 import TableCal from "../components/Basic/tableCal";
+import { collection, getDocs, addDoc, doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
 
-// Mock Data for Employees
-const MOCK_EMPLOYEES = [
-  { id: "1", name: "Olivia Martin", role: "Frontend Developer" },
-  { id: "2", name: "Jackson Lee", role: "Backend Developer" },
-  { id: "3", name: "Sophia Brown", role: "UI/UX Designer" },
-  { id: "4", name: "Ethan Wilson", role: "Project Manager" },
-  { id: "5", name: "Ava Johnson", role: "QA Engineer" },
-];
-
-const AssignTask = ({ projectId: propProjectId, onSuccess, onCancel }) => {
+const AssignTask = ({ projectId: propProjectId, projectParticipants = [], onSuccess, onCancel }) => {
   const { projectId: routeProjectId } = useParams();
   const navigate = useNavigate();
   const projectId = propProjectId || routeProjectId;
@@ -30,20 +23,36 @@ const AssignTask = ({ projectId: propProjectId, onSuccess, onCancel }) => {
   const [employees, setEmployees] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load mock employees instead of fetching from backend
+  // Load employees assigned to this specific project
   useEffect(() => {
-    // Simulate a slight delay for realism
-    const timer = setTimeout(() => {
-      setEmployees(MOCK_EMPLOYEES);
-      if (MOCK_EMPLOYEES.length > 0) {
-        setSelectedEmployee(MOCK_EMPLOYEES[0].id);
+    const fetchAssignees = async () => {
+      // 1. If project participants details are passed as props from parent, use them directly
+      if (projectParticipants && projectParticipants.length > 0) {
+        setEmployees(projectParticipants);
+        setSelectedEmployee(projectParticipants[0].id);
+        return;
       }
-    }, 500);
 
-    return () => clearTimeout(timer);
-  }, []);
+      // 2. Fallback: Fetch single project document to extract assigned member details
+      try {
+        const projectDoc = await getDoc(doc(db, "project", projectId));
+        if (projectDoc.exists()) {
+          const projectData = projectDoc.data();
+          const members = projectData.participantDetails || [];
+          setEmployees(members);
+          if (members.length > 0) {
+            setSelectedEmployee(members[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching project participants from database:", err);
+      }
+    };
 
-  const handleSubmit = (e) => {
+    fetchAssignees();
+  }, [projectId, projectParticipants]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!taskName.trim() || !startDate || !endDate || !selectedEmployee) {
@@ -51,32 +60,45 @@ const AssignTask = ({ projectId: propProjectId, onSuccess, onCancel }) => {
       return;
     }
 
-    // Simulate API submission
     setSubmitting(true);
 
-    setTimeout(() => {
-      console.log("Task Created (Mock):", {
-        title: taskName,
-        description,
+    try {
+      const selectedEmpData = employees.find(e => e.id === selectedEmployee);
+      
+      const taskPayload = {
+        description: taskName,
+        details: description,
         startDate,
-        endDate,
-        assignedTo: selectedEmployee,
+        dueDate: endDate,
+        assignedTo: selectedEmpData ? [{ 
+          id: selectedEmpData.id, // sanitized email
+          uid: selectedEmpData.uid || "", 
+          email: selectedEmpData.email || "",
+          name: selectedEmpData.name 
+        }] : [],
+        status: "In Progress",
         projectId,
-      });
+        createdAt: new Date().toISOString()
+      };
+
+      await addDoc(collection(db, "tasks"), taskPayload);
 
       setTaskName("");
       setDescription("");
       setStartDate("");
       setEndDate("");
 
-      setSubmitting(false);
-
       if (onSuccess) {
         onSuccess();
       } else {
         navigate(`/projects/${projectId}`);
       }
-    }, 1000);
+    } catch (err) {
+      console.error("Error creating task in DB:", err);
+      alert("Failed to assign task: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -250,9 +272,7 @@ const AssignTask = ({ projectId: propProjectId, onSuccess, onCancel }) => {
                           }}
                         >
                           <img
-                            src={`https://i.pravatar.cc/150?img=${
-                              (parseInt(emp.id) % 70) + 1
-                            }`}
+                            src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(emp.name)}`}
                             alt={emp.name}
                             className="w-10 h-10 rounded-full mr-4 object-cover border-2 border-white"
                           />

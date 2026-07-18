@@ -18,3 +18,18 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
+
+export const getUserFromToken = () => {
+  if (typeof window === "undefined") return null;
+  const token = localStorage.getItem("token");
+  if (!token) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length === 3 && parts[0] === "offline") {
+      return JSON.parse(atob(parts[1]));
+    }
+  } catch (e) {
+    console.error("Error parsing token", e);
+  }
+  return null;
+};

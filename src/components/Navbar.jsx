@@ -2,16 +2,18 @@ import { Bell, Search } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import NotificationDropdown from "./NotificationDropdown";
+import { getUserFromToken } from "../firebase";
 
 const Navbar = () => {
   const navigate = useNavigate();
   const [openNoti, setOpenNoti] = useState(false);
+  const currentUser = getUserFromToken();
 
-  // Static frontend-only user data
+  // Dynamic user data with static fallback
   const userData = {
-    name: "Olivia Martin",
-    role: "Admin",
-    email: "olivia@taskfleet.com",
+    name: currentUser?.name || "Olivia Martin",
+    role: currentUser?.role || "Admin",
+    email: currentUser?.email || "olivia@taskfleet.com",
   };
 
   return (

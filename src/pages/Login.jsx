@@ -46,6 +46,18 @@ const Login = () => {
     }
 
     try {
+      // Fetch user data from Firestore first
+      const sanitizedEmail = signinemail.replace(/\./g, "_");
+      const docRef = doc(db, "users", sanitizedEmail);
+      const docSnap = await getDoc(docRef);
+      
+      if (!docSnap.exists()) {
+        setError("No user found with this email.");
+        return;
+      }
+      
+      const userData = docSnap.data();
+
       // Authenticate with Firebase
       const userCredential = await signInWithEmailAndPassword(
         auth,
@@ -53,15 +65,6 @@ const Login = () => {
         signinpassword
       );
       const user = userCredential.user;
-
-      // Fetch user data from Firestore
-      const sanitizedEmail = signinemail.replace(/\./g, "_");
-      const docRef = doc(db, "users", sanitizedEmail);
-      const docSnap = await getDoc(docRef);
-      let userData = {};
-      if (docSnap.exists()) {
-        userData = docSnap.data();
-      }
 
       // Construct a token payload for RBAC
       const payload = {

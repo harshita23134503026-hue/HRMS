@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { getUserFromToken } from "../firebase"
 import { TrendingUp, Video, Search, Plus, MonitorX } from "lucide-react"
 import { ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 
@@ -154,10 +155,12 @@ const Dashboard = () => {
   const appsBtnRef = useRef(null)
   const popupRef = useRef(null)
 
-  // Frontend-only permissions.
-  // Change these values if you want to hide/show buttons.
-  const canCreateProject = true
-  const canCreateUser = true
+  // User Role-based permissions.
+  const currentUser = getUserFromToken()
+  const currentRole = currentUser?.role?.toLowerCase() || "member"
+
+  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)
+  const canCreateUser = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)
   const canViewUsers = true
   const isUserPanelOpen = true
 

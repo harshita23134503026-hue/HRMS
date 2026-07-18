@@ -1,8 +1,10 @@
 "use client"
 
 import { Plus, Eye, MessageCircle } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
+import { getUserFromToken, db } from "../firebase"
+import { collection, onSnapshot } from "firebase/firestore"
 
 // Define colors directly in the component file
 const colors = {
@@ -42,105 +44,6 @@ const colors = {
 // ─── Mock Data ───────────────────────────────────────────────
 const avatar = (seed) =>
   `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(seed)}`
-
-const MOCK_PENDING_PROJECTS = [
-  {
-    id: "p1",
-    title: "Marketing Campaign Q3",
-    priority: "important",
-    progress: 0,
-    status: "pending",
-    team: [avatar("Olivia Martin"), avatar("Jackson Lee")],
-    stats: { views: 120, comments: 4 },
-  },
-  {
-    id: "p2",
-    title: "Mobile App v2.0 Planning",
-    priority: "high priority",
-    progress: 5,
-    status: "pending",
-    team: [avatar("Sophia Brown"), avatar("Ethan Wilson"), avatar("Ava Johnson"), avatar("Liam Davis")],
-    stats: { views: 340, comments: 12 },
-  },
-  {
-    id: "p3",
-    title: "Customer Feedback Survey",
-    priority: "meh",
-    progress: 0,
-    status: "pending",
-    team: [avatar("Ava Johnson")],
-    stats: { views: 45, comments: 1 },
-  },
-]
-
-const MOCK_PROGRESS_PROJECTS = [
-  {
-    id: "pr1",
-    title: "Website Redesign",
-    priority: "important",
-    progress: 68,
-    status: "progress",
-    team: [avatar("Olivia Martin"), avatar("Sophia Brown"), avatar("Ethan Wilson")],
-    stats: { views: 1250, comments: 34 },
-  },
-  {
-    id: "pr2",
-    title: "API Integration Module",
-    priority: "ok",
-    progress: 42,
-    status: "progress",
-    team: [avatar("Jackson Lee"), avatar("Liam Davis")],
-    stats: { views: 560, comments: 18 },
-  },
-  {
-    id: "pr3",
-    title: "Dashboard UI Update",
-    priority: "high priority",
-    progress: 81,
-    status: "progress",
-    team: [avatar("Sophia Brown"), avatar("Ava Johnson"), avatar("Olivia Martin"), avatar("Jackson Lee"), avatar("Ethan Wilson")],
-    stats: { views: 2100, comments: 47 },
-  },
-]
-
-const MOCK_COMPLETED_PROJECTS = [
-  {
-    id: "c1",
-    title: "Brand Identity Refresh",
-    priority: "important",
-    progress: 100,
-    status: "completed",
-    team: [avatar("Sophia Brown"), avatar("Olivia Martin")],
-    stats: { views: 3400, comments: 89 },
-  },
-  {
-    id: "c2",
-    title: "Q1 Sales Report Automation",
-    priority: "ok",
-    progress: 100,
-    status: "completed",
-    team: [avatar("Ethan Wilson"), avatar("Ava Johnson"), avatar("Liam Davis")],
-    stats: { views: 890, comments: 23 },
-  },
-  {
-    id: "c3",
-    title: "Legacy System Migration",
-    priority: "high priority",
-    progress: 100,
-    status: "completed",
-    team: [avatar("Jackson Lee"), avatar("Liam Davis")],
-    stats: { views: 1750, comments: 56 },
-  },
-  {
-    id: "c4",
-    title: "Employee Onboarding Portal",
-    priority: "meh",
-    progress: 100,
-    status: "completed",
-    team: [avatar("Ava Johnson")],
-    stats: { views: 430, comments: 9 },
-  },
-]
 
 // ProjectCard Component
 function ProjectCard({ project, onViewClick }) {
@@ -222,31 +125,31 @@ function ProjectCard({ project, onViewClick }) {
       </div>
       <div className="flex items-center justify-between">
         <div className="flex items-center">
-          {project.team.slice(0, 3).map((avatar, index) => (
+          {(project.team || []).slice(0, 3).map((avatar, index) => (
             <img
               key={index}
-              src={avatar || "/placeholder.svg?height=24&width=24"}
+              src={avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(project.participants?.[index] || index)}`}
               alt="Team member"
               className="relative -ml-2 h-6 w-6 rounded-full border-2 border-white object-cover first:ml-0"
             />
           ))}
-          {project.team.length > 3 && (
+          {(project.team || []).length > 3 && (
             <div
               className="relative -ml-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold"
               style={{ backgroundColor: colors.avatarCountBg, color: colors.avatarCountText }}
             >
-              {`+${project.team.length - 3}`}
+              {`+${(project.team || []).length - 3}`}
             </div>
           )}
         </div>
         <div className="flex gap-3">
           <div className="flex items-center gap-1 text-xs font-medium" style={{ color: colors.textMedium }}>
             <Eye size={14} />
-            <span>{formatNumber(project.stats.views)}</span>
+            <span>{formatNumber(project.stats?.views || 0)}</span>
           </div>
           <div className="flex items-center gap-1 text-xs font-medium" style={{ color: colors.textMedium }}>
             <MessageCircle size={14} />
-            <span>{formatNumber(project.stats.comments)}</span>
+            <span>{formatNumber(project.stats?.comments || 0)}</span>
           </div>
         </div>
       </div>
@@ -309,17 +212,59 @@ function ProjectColumn({ title, count, projects, type, onCreateProject, canCreat
 export default function ProjectsView() {
   const navigate = useNavigate();
 
-  // Frontend-only permission toggle (set false to hide "+"/create buttons)
-  const canCreateProject = true;
+  // Dynamic role-based permissions
+  const currentUser = getUserFromToken();
+  const currentRole = currentUser?.role?.toLowerCase() || "member";
+  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
 
-  const [pendingProjectsApi] = useState(MOCK_PENDING_PROJECTS);
-  const [inProgressProjectsApi] = useState(MOCK_PROGRESS_PROJECTS);
-  const [completedProjectsApi] = useState(MOCK_COMPLETED_PROJECTS);
+  const [pendingProjectsApi, setPendingProjectsApi] = useState([]);
+  const [inProgressProjectsApi, setInProgressProjectsApi] = useState([]);
+  const [completedProjectsApi, setCompletedProjectsApi] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Handle project click to navigate to project details
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "project"), (snapshot) => {
+      const projectsList = [];
+      snapshot.forEach((doc) => {
+        projectsList.push({ id: doc.id, ...doc.data() });
+      });
+
+      const pending = projectsList.filter(p => {
+        const s = (p.status || "").toLowerCase();
+        return s === "pending" || s === "upcoming";
+      });
+      const progress = projectsList.filter(p => {
+        const s = (p.status || "").toLowerCase();
+        return s === "progress" || s === "in progress" || s === "running";
+      });
+      const completed = projectsList.filter(p => {
+        const s = (p.status || "").toLowerCase();
+        return s === "completed" || s === "ended";
+      });
+
+      setPendingProjectsApi(pending);
+      setInProgressProjectsApi(progress);
+      setCompletedProjectsApi(completed);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error listening to projects: ", err);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   const handleProjectClick = (projectId) => {
     navigate(`/projects/${projectId}`);
   };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: colors.backgroundLight }}>
+        <p className="text-gray-500 font-semibold text-lg animate-pulse">Loading projects...</p>
+      </div>
+    );
+  }
 
   return (
     <div

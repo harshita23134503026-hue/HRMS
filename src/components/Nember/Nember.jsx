@@ -1,70 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
-
-// ─── Mock Data ───────────────────────────────────────────────
-const MOCK_MEMBERS = [
-  {
-    _id: "1",
-    name: "Olivia Martin",
-    email: "olivia@taskfleet.com",
-    role: "frontend_developer",
-    displayRole: "Frontend Developer",
-    phone: "+1 555-0101",
-    joined: "12/01/2026",
-    img: 11,
-    isOnline: true,
-    lastSeenAt: null,
-  },
-  {
-    _id: "2",
-    name: "Jackson Lee",
-    email: "jackson@taskfleet.com",
-    role: "backend_developer",
-    displayRole: "Backend Developer",
-    phone: "+1 555-0102",
-    joined: "15/01/2026",
-    img: 12,
-    isOnline: true,
-    lastSeenAt: null,
-  },
-  {
-    _id: "3",
-    name: "Sophia Brown",
-    email: "sophia@taskfleet.com",
-    role: "ui_ux_designer",
-    displayRole: "UI/UX Designer",
-    phone: "+1 555-0103",
-    joined: "20/01/2026",
-    img: 5,
-    isOnline: false,
-    lastSeenAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(), // 25 min ago
-  },
-  {
-    _id: "4",
-    name: "Ethan Wilson",
-    email: "ethan@taskfleet.com",
-    role: "project_manager",
-    displayRole: "Project Manager",
-    phone: "+1 555-0104",
-    joined: "02/02/2026",
-    img: 8,
-    isOnline: false,
-    lastSeenAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(), // 5 hrs ago
-  },
-  {
-    _id: "5",
-    name: "Ava Johnson",
-    email: "ava@taskfleet.com",
-    role: "qa_engineer",
-    displayRole: "QA Engineer",
-    phone: "+1 555-0105",
-    joined: "10/02/2026",
-    img: 9,
-    isOnline: false,
-    lastSeenAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(), // 1 day ago
-  },
-];
+import { db, getUserFromToken } from "../../firebase";
+import { doc, updateDoc } from "firebase/firestore";
 
 // ─── Presence helpers (frontend-only) ────────────────────────
 const formatLastSeen = (lastSeenAt, now) => {
@@ -99,8 +37,10 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
   const [selectedMember, setSelectedMember] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
-  // Frontend-only admin toggle (set false to hide ••• menus)
-  const isAdmin = true;
+  // Dynamic admin check matching role-based permissions
+  const currentUser = getUserFromToken();
+  const currentRole = currentUser?.role?.toLowerCase() || "member";
+  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
 
   // Tick every minute so "last seen" labels stay fresh
   useEffect(() => {
@@ -111,37 +51,32 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
     return () => clearInterval(timer);
   }, []);
 
-  // Load mock members (simulates a fetch delay)
+  // Load members from projectParticipants prop
   useEffect(() => {
     setLoading(true);
 
-    const timer = setTimeout(() => {
-      // Prefer participants passed from the parent (ProjectPage mock), else use local mock
-      if (projectParticipants && Array.isArray(projectParticipants) && projectParticipants.length > 0) {
-        const mapped = projectParticipants.map((user, idx) => ({
-          _id: user.id || user._id || String(idx),
-          name: user.name || "Unknown",
-          email: user.email || `${(user.name || "user").toLowerCase().replace(/\s+/g, ".")}@taskfleet.com`,
-          role: user.role || "member",
-          displayRole: user.role ? user.role.replace(/_/g, " ") : "Member",
-          phone: user.mobile || user.phone || "N/A",
-          joined: user.createdAt
-            ? new Date(user.createdAt).toLocaleDateString("en-GB")
-            : "01/03/2026",
-          img: (idx % 70) + 1,
-          isOnline: idx < 2, // first two members "online" for demo
-          lastSeenAt: idx < 2 ? null : new Date(Date.now() - 1000 * 60 * 30 * (idx + 1)).toISOString(),
-        }));
-        setMembers(mapped);
-      } else {
-        setMembers(MOCK_MEMBERS);
-      }
+    if (projectParticipants && Array.isArray(projectParticipants)) {
+      const mapped = projectParticipants.map((user, idx) => ({
+        _id: user.id || user._id || String(idx),
+        name: user.name || "Unknown",
+        email: user.email || user.id || `${(user.name || "user").toLowerCase().replace(/\s+/g, ".")}@taskfleet.com`,
+        role: user.role || "member",
+        displayRole: user.role ? user.role.replace(/_/g, " ") : "Member",
+        phone: user.mobile || user.phone || "N/A",
+        joined: user.createdAt
+          ? new Date(user.createdAt).toLocaleDateString("en-GB")
+          : "01/03/2026",
+        img: (idx % 70) + 1,
+        isOnline: idx < 2, // first two members "online" for demo
+        lastSeenAt: idx < 2 ? null : new Date(Date.now() - 1000 * 60 * 30 * (idx + 1)).toISOString(),
+      }));
+      setMembers(mapped);
+    } else {
+      setMembers([]);
+    }
 
-      setLoading(false);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [projectId, projectParticipants]);
+    setLoading(false);
+  }, [projectParticipants]);
 
   // close dropdown when click outside current menu/button
   useEffect(() => {
@@ -167,12 +102,27 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
     setOpenMenuIndex(null);
   };
 
-  const deleteMember = (email) => {
-    setMembers((prev) => prev.filter((m) => m.email !== email));
-    setOpenMenuIndex(null);
-    if (selectedMember?.email === email) {
-      setOpenEditModal(false);
-      setSelectedMember(null);
+  const deleteMember = async (email) => {
+    try {
+      const updatedDetails = projectParticipants.filter(p => p.id !== email && p.email !== email);
+      const updatedTeam = updatedDetails.map(p => p.name);
+      const updatedParticipants = updatedDetails.map(p => p.id);
+
+      await updateDoc(doc(db, "project", projectId), {
+        participants: updatedParticipants,
+        team: updatedTeam,
+        participantDetails: updatedDetails
+      });
+
+      setMembers((prev) => prev.filter((m) => m.email !== email));
+      setOpenMenuIndex(null);
+      if (selectedMember?.email === email) {
+        setOpenEditModal(false);
+        setSelectedMember(null);
+      }
+    } catch (err) {
+      console.error("Error removing member from project:", err);
+      alert("Failed to remove member: " + err.message);
     }
   };
 
