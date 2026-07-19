@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { FaChevronDown } from "react-icons/fa";
 import TableCal from "../components/Basic/tableCal";  // <-- IMPORT POPUP CALENDAR
 import { useNavigate } from "react-router-dom";
-import { collection, getDocs, doc, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db, getUserFromToken } from "../firebase";
 
 const CreateProject = () => {
@@ -111,6 +111,20 @@ const CreateProject = () => {
       };
 
       await setDoc(projectRef, payload);
+
+      // Update each selected employee's user document to add the new project ID
+      const creatorDocId = creatorEmail ? creatorEmail.replace(/\./g, "_") : "";
+      const usersToUpdate = Array.from(
+        new Set([...selectedEmployeeIds, creatorDocId])
+      ).filter(Boolean);
+
+      const updatePromises = usersToUpdate.map((empId) => {
+        const userRef = doc(db, "users", empId);
+        return updateDoc(userRef, {
+          projectIds: arrayUnion(newProjectId)
+        });
+      });
+      await Promise.all(updatePromises);
 
       setProjectName("");
       setDescription("");

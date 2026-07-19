@@ -139,6 +139,7 @@ const Login = () => {
         designation: "",
         parentuid:[],
         childrenuid:[],
+        projectIds: [],
         createdAt: new Date().toISOString(),
 
       });

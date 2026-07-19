@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { db, getUserFromToken } from "../../firebase";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, arrayRemove } from "firebase/firestore";
 
 // ─── Presence helpers (frontend-only) ────────────────────────
 const formatLastSeen = (lastSeenAt, now) => {
@@ -112,6 +112,12 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
         participants: updatedParticipants,
         team: updatedTeam,
         participantDetails: updatedDetails
+      });
+
+      // Also remove the project ID from the user's projectIds array in Firestore
+      const userDocId = email.replace(/\./g, "_");
+      await updateDoc(doc(db, "users", userDocId), {
+        projectIds: arrayRemove(projectId)
       });
 
       setMembers((prev) => prev.filter((m) => m.email !== email));

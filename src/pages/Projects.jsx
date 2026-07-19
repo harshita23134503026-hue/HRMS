@@ -4,7 +4,7 @@ import { Plus, Eye, MessageCircle } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { getUserFromToken, db } from "../firebase"
-import { collection, onSnapshot } from "firebase/firestore"
+import { collection, onSnapshot, doc } from "firebase/firestore"
 
 // Define colors directly in the component file
 const colors = {
@@ -215,45 +215,81 @@ export default function ProjectsView() {
   // Dynamic role-based permissions
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager","member","Member"].includes(currentRole) ||
-  (Array.isArray(currentUser?.childrenuid) && currentUser.childrenuid.length > 0);
+  const userEmail = currentUser?.email || "";
+  const sanitizedEmail = userEmail ? userEmail.replace(/\./g, "_") : null;
 
-  const [pendingProjectsApi, setPendingProjectsApi] = useState([]);
-  const [inProgressProjectsApi, setInProgressProjectsApi] = useState([]);
-  const [completedProjectsApi, setCompletedProjectsApi] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager", "member", "Member"].includes(currentRole) ||
+    (Array.isArray(currentUser?.childrenuid) && currentUser.childrenuid.length > 0);
 
+  const [projects, setProjects] = useState([]);
+  const [userProjectIds, setUserProjectIds] = useState([]);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+
+  // Subscribe to user doc to get their assigned project IDs in real-time
+  useEffect(() => {
+    if (!sanitizedEmail) {
+      setLoadingUser(false);
+      return;
+    }
+    const userDocRef = doc(db, "users", sanitizedEmail);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProjectIds(docSnap.data()?.projectIds || []);
+      }
+      setLoadingUser(false);
+    }, (err) => {
+      console.error("Error listening to user doc:", err);
+      setLoadingUser(false);
+    });
+    return () => unsubscribe();
+  }, [sanitizedEmail]);
+
+  // Subscribe to project collection
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "project"), (snapshot) => {
       const projectsList = [];
       snapshot.forEach((doc) => {
         projectsList.push({ id: doc.id, ...doc.data() });
       });
-
-      const pending = projectsList.filter(p => {
-        const s = (p.status || "").toLowerCase();
-        return s === "pending" || s === "upcoming";
-      });
-      const progress = projectsList.filter(p => {
-        const s = (p.status || "").toLowerCase();
-        return s === "progress" || s === "in progress" || s === "running";
-      });
-      const completed = projectsList.filter(p => {
-        const s = (p.status || "").toLowerCase();
-        return s === "completed" || s === "ended";
-      });
-
-      setPendingProjectsApi(pending);
-      setInProgressProjectsApi(progress);
-      setCompletedProjectsApi(completed);
-      setLoading(false);
+      setProjects(projectsList);
+      setLoadingProjects(false);
     }, (err) => {
       console.error("Error listening to projects: ", err);
-      setLoading(false);
+      setLoadingProjects(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  const filteredProjects = projects.filter(p => {
+    // Admin role can see all projects
+    if (currentRole === "admin" || currentRole === "sadmin" || currentRole === "hr" || currentRole === "hr_manager") {
+      return true;
+    }
+
+    // Only show projects that are in the user's projectIds array, 
+    // or if the user's sanitized email is listed in the project's participants.
+    const isAssignedById = userProjectIds.includes(p.id);
+    const isAssignedByParticipants = Array.isArray(p.participants) && p.participants.includes(sanitizedEmail);
+
+    return isAssignedById || isAssignedByParticipants;
+  });
+
+  const pendingProjectsApi = filteredProjects.filter(p => {
+    const s = (p.status || "").toLowerCase();
+    return s === "pending" || s === "upcoming";
+  });
+  const inProgressProjectsApi = filteredProjects.filter(p => {
+    const s = (p.status || "").toLowerCase();
+    return s === "progress" || s === "in progress" || s === "running";
+  });
+  const completedProjectsApi = filteredProjects.filter(p => {
+    const s = (p.status || "").toLowerCase();
+    return s === "completed" || s === "ended";
+  });
+
+  const loading = loadingProjects || (sanitizedEmail && loadingUser);
 
   const handleProjectClick = (projectId) => {
     navigate(`/projects/${projectId}`);
