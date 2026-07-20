@@ -198,8 +198,7 @@ const Dashboard = () => {
   const isUserPanelOpen = true
 
   const onCreateProject = () => {
-    if (!isAdmin) return
-    navigate("/create-project")
+    navigate("/createproject")
   }
 
   const onAddMember = () => {
@@ -226,7 +225,7 @@ const Dashboard = () => {
         let loggedInUserProfile = null
 
         if (currentUserEmail) {
-          const userDocRef = doc(db, "users", currentUserEmail)
+          const userDocRef = doc(db, "users", currentUserEncodedEmail)
           const userDocSnap = await getDoc(userDocRef)
 
           if (userDocSnap.exists()) {
@@ -255,22 +254,26 @@ const Dashboard = () => {
           ...projectDoc.data(),
         }))
 
+        const userProjectIds = loggedInUserProfile?.projectIds || []
         const visibleProjects = adminAccess
           ? allProjects
           : allProjects.filter((project) => {
-              const participants = Array.isArray(project.participants)
-                ? project.participants
-                : []
+            const isAssignedById = userProjectIds.includes(project.id)
+            const participants = Array.isArray(project.participants)
+              ? project.participants
+              : []
 
-              return participants.some((participant) => {
-                const participantEmail = getParticipantEmail(participant)
+            const isAssignedByParticipants = participants.some((participant) => {
+              const participantEmail = getParticipantEmail(participant)
 
-                return (
-                  participantEmail === currentUserEncodedEmail ||
-                  participantEmail === currentUserEmail
-                )
-              })
+              return (
+                participantEmail === currentUserEncodedEmail ||
+                participantEmail === currentUserEmail
+              )
             })
+
+            return isAssignedById || isAssignedByParticipants
+          })
 
         setProjects(visibleProjects)
 
@@ -614,7 +617,11 @@ const Dashboard = () => {
         <div className="rounded-3xl p-6 relative bg-gradient-to-br from-blue-400 to-blue-700 text-white shadow-md">
           <div className="flex justify-between items-start mb-4">
             <h3 className="font-semibold text-sm text-white">Total Projects</h3>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-white/30 bg-white/10">
+            <div
+              // onClick={() => navigate("/projects")}
+              className="w-8 h-8 rounded-full flex items-center justify-center border border-white/30 bg-white/10 cursor-pointer hover:bg-white/20 transition-all active:scale-95"
+            // title={isAdmin ? "View All Projects" : "View Assigned Projects"}
+            >
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
@@ -631,7 +638,12 @@ const Dashboard = () => {
             <h3 className="font-semibold text-sm text-gray-800">
               Ended Projects
             </h3>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50 hover:bg-white/20 transition-all active:scale-95 cursor-pointer"
+
+            // onClick={() => navigate("/projects")}
+            // title={isAdmin ? "View All Projects" : "View Assigned Projects"}
+
+            >
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>
@@ -648,7 +660,12 @@ const Dashboard = () => {
             <h3 className="font-semibold text-sm text-gray-800">
               Running Projects
             </h3>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50 hover:bg-white/20 transition-all active:scale-95 cursor-pointer"
+
+            // onClick={() => navigate("/projects")}
+            // title={isAdmin ? "View All Projects" : "View Assigned Projects"}
+
+            >
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>
@@ -665,7 +682,12 @@ const Dashboard = () => {
             <h3 className="font-semibold text-sm text-gray-800">
               Pending Projects
             </h3>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 bg-gray-50 hover:bg-white/20 transition-all active:scale-95 cursor-pointer"
+
+            // onClick={() => navigate("/projects")}
+            // title={isAdmin ? "View All Projects" : "View Assigned Projects"}
+
+            >
               <TrendingUp className="w-4 h-4 text-gray-600" />
             </div>
           </div>

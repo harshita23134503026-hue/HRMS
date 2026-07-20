@@ -247,7 +247,7 @@ export default function ProjectsView() {
 
   // Subscribe to project collection
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "project"), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, "projects"), (snapshot) => {
       const projectsList = [];
       snapshot.forEach((doc) => {
         projectsList.push({ id: doc.id, ...doc.data() });

@@ -69,7 +69,7 @@ const TaskUpdates = () => {
     try {
       // 1. Fetch parent project details
       if (projectId) {
-        const projectDoc = await getDoc(doc(db, "project", projectId));
+        const projectDoc = await getDoc(doc(db, "projects", projectId));
         if (projectDoc.exists()) {
           setProject({ id: projectDoc.id, ...projectDoc.data() });
         }

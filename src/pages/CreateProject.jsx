@@ -87,7 +87,7 @@ const CreateProject = () => {
       const participantUids = selectedEmployees.map(emp => emp.uid || "").filter(Boolean);
 
       // Generate a new document reference to obtain a unique projectId beforehand
-      const projectRef = doc(collection(db, "project"));
+      const projectRef = doc(collection(db, "projects"));
       const newProjectId = projectRef.id;
 
       const payload = {

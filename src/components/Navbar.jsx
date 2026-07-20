@@ -1,19 +1,38 @@
 import { Bell, Search } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import NotificationDropdown from "./NotificationDropdown";
-import { getUserFromToken } from "../firebase";
+import { getUserFromToken, db } from "../firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 
 const Navbar = () => {
   const navigate = useNavigate();
   const [openNoti, setOpenNoti] = useState(false);
   const currentUser = getUserFromToken();
+  const [profileData, setProfileData] = useState(null);
+
+  useEffect(() => {
+    if (!currentUser?.email) return;
+    const sanitizedEmail = currentUser.email.replace(/\./g, "_");
+    const unsubscribe = onSnapshot(
+      doc(db, "users", sanitizedEmail),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setProfileData(docSnap.data());
+        }
+      },
+      (error) => {
+        console.error("Error fetching user profile in Navbar:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentUser?.email]);
 
   // Dynamic user data with static fallback
   const userData = {
-    name: currentUser?.name || "Olivia Martin",
-    role: currentUser?.role || "Admin",
-    email: currentUser?.email || "olivia@taskfleet.com",
+    name: profileData?.name || currentUser?.name || "Olivia Martin",
+    designation: profileData?.designation || currentUser?.role || "Admin",
+    email: profileData?.email || currentUser?.email || "olivia@taskfleet.com",
   };
 
   return (
@@ -69,7 +88,7 @@ const Navbar = () => {
             <p className="text-sm font-medium text-black leading-4">
               {userData.name}
             </p>
-            <p className="text-xs text-gray-400">{userData.role}</p>
+            <p className="text-xs text-gray-400">{userData.designation}</p>
           </div>
         </div>
       </div>

@@ -35,7 +35,7 @@ const AssignTask = ({ projectId: propProjectId, projectParticipants = [], onSucc
 
       // 2. Fallback: Fetch single project document to extract assigned member details
       try {
-        const projectDoc = await getDoc(doc(db, "project", projectId));
+        const projectDoc = await getDoc(doc(db, "projects", projectId));
         if (projectDoc.exists()) {
           const projectData = projectDoc.data();
           const members = projectData.participantDetails || [];

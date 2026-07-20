@@ -70,26 +70,44 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   useEffect(() => {
     let filtered = [...tasks];
 
-    if (taskFilter === "me") {
-      filtered = tasks.filter(
-        (task) =>
-          task.assignedTo &&
-          (Array.isArray(task.assignedTo)
-            ? task.assignedTo.some((user) => {
-                if (typeof user === "object") {
-                  return (user.id || user._id) === currentUserId;
-                }
-                return user === currentUserId;
-              })
-            : typeof task.assignedTo === "object"
-              ? (task.assignedTo.id || task.assignedTo._id) === currentUserId
-              : task.assignedTo === currentUserId)
+    const isCurrentUser = (user) => {
+      if (!user) return false;
+      const currentUserEmail = currentUser?.email?.toLowerCase() || "";
+      const currentUserSanitizedEmail = currentUserEmail.replace(/\./g, "_");
+      
+      if (typeof user === "object") {
+        const userId = (user.id || user._id || "").toLowerCase();
+        const userUid = user.uid || "";
+        const userEmail = (user.email || "").toLowerCase();
+        
+        return (
+          (userUid && userUid === currentUserId) ||
+          (userEmail && userEmail === currentUserEmail) ||
+          (userId && (userId === currentUserSanitizedEmail || userId === currentUserEmail))
+        );
+      }
+      
+      const val = String(user).toLowerCase();
+      return (
+        val === currentUserId ||
+        val === currentUserEmail ||
+        val === currentUserSanitizedEmail
       );
+    };
+
+    if (taskFilter === "me") {
+      filtered = tasks.filter((task) => {
+        if (!task.assignedTo) return false;
+        if (Array.isArray(task.assignedTo)) {
+          return task.assignedTo.some(isCurrentUser);
+        }
+        return isCurrentUser(task.assignedTo);
+      });
     }
 
     setFilteredTasks(filtered);
     setCurrentPage(1); // Reset to first page when filter changes
-  }, [taskFilter, tasks, currentUserId]);
+  }, [taskFilter, tasks, currentUserId, currentUser]);
 
   // ⭐ STATUS COLOR MAPPING
   const statusColor = {

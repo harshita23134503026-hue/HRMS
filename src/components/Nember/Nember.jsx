@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { db, getUserFromToken } from "../../firebase";
-import { doc, updateDoc, arrayRemove } from "firebase/firestore";
+import { doc, updateDoc, arrayRemove, collection, getDocs, arrayUnion, onSnapshot } from "firebase/firestore";
 
 // ─── Presence helpers (frontend-only) ────────────────────────
 const formatLastSeen = (lastSeenAt, now) => {
@@ -41,6 +41,91 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
   const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+
+  const [currentUserProfile, setCurrentUserProfile] = useState(null);
+  const [openAddModal, setOpenAddModal] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState([]);
+  const [selectedUserToAdd, setSelectedUserToAdd] = useState("");
+  const [addingMember, setAddingMember] = useState(false);
+
+  // Subscribe to logged in user doc to get dynamic childrenuid updates
+  useEffect(() => {
+    if (!currentUser?.email) return;
+    const sanitizedEmail = currentUser.email.replace(/\./g, "_");
+    const unsubscribe = onSnapshot(doc(db, "users", sanitizedEmail), (docSnap) => {
+      if (docSnap.exists()) {
+        setCurrentUserProfile(docSnap.data());
+      }
+    });
+    return () => unsubscribe();
+  }, [currentUser?.email]);
+
+  const hasChildren = Array.isArray(currentUserProfile?.childrenuid) && currentUserProfile.childrenuid.length > 0;
+  const canAddMember = isAdmin || hasChildren;
+
+  // Fetch users not already in the project when Add Modal opens
+  useEffect(() => {
+    if (!openAddModal) return;
+    const fetchUsers = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "users"));
+        const allUsers = [];
+        querySnapshot.forEach((docSnap) => {
+          allUsers.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        const existingEmails = new Set(projectParticipants.map(p => p.id));
+        const filtered = allUsers.filter(u => !existingEmails.has(u.id));
+        setAvailableUsers(filtered);
+        if (filtered.length > 0) {
+          setSelectedUserToAdd(filtered[0].id);
+        } else {
+          setSelectedUserToAdd("");
+        }
+      } catch (err) {
+        console.error("Error fetching users:", err);
+      }
+    };
+    fetchUsers();
+  }, [openAddModal, projectParticipants]);
+
+  const handleAddMemberSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedUserToAdd) return;
+    setAddingMember(true);
+    try {
+      const selectedUser = availableUsers.find(u => u.id === selectedUserToAdd);
+      if (!selectedUser) throw new Error("Selected user not found");
+      const newParticipant = {
+        id: selectedUser.id,
+        uid: selectedUser.uid || "",
+        email: selectedUser.email || selectedUser.id.replace(/_/g, "."),
+        name: selectedUser.name || "Unknown",
+        role: selectedUser.role || "Member"
+      };
+      const updatedDetails = [...projectParticipants, newParticipant];
+      const updatedTeam = updatedDetails.map(p => p.name);
+      const updatedParticipants = updatedDetails.map(p => p.id);
+      
+      // 1. Update the project document
+      await updateDoc(doc(db, "projects", projectId), {
+        participants: updatedParticipants,
+        team: updatedTeam,
+        participantDetails: updatedDetails
+      });
+      
+      // 2. Add project ID to the user document
+      await updateDoc(doc(db, "users", selectedUser.id), {
+        projectIds: arrayUnion(projectId)
+      });
+      
+      setOpenAddModal(false);
+    } catch (err) {
+      console.error("Error adding member:", err);
+      alert("Failed to add member: " + err.message);
+    } finally {
+      setAddingMember(false);
+    }
+  };
 
   // Tick every minute so "last seen" labels stay fresh
   useEffect(() => {
@@ -108,7 +193,7 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
       const updatedTeam = updatedDetails.map(p => p.name);
       const updatedParticipants = updatedDetails.map(p => p.id);
 
-      await updateDoc(doc(db, "project", projectId), {
+      await updateDoc(doc(db, "projects", projectId), {
         participants: updatedParticipants,
         team: updatedTeam,
         participantDetails: updatedDetails
@@ -223,12 +308,17 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
             </div>
           ))}
 
-          <div className="bg-[#f7fdff] rounded-xl text-center py-4 px-3 flex flex-col items-center justify-center h-56 cursor-pointer">
-            <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center text-blue-500 border-2 border-dashed border-blue-300">
-              <Plus className="w-5 h-5" />
+          {canAddMember && (
+            <div
+              onClick={() => setOpenAddModal(true)}
+              className="bg-[#f7fdff] rounded-xl text-center py-4 px-3 flex flex-col items-center justify-center h-56 cursor-pointer hover:bg-[#edf9fc] transition-all"
+            >
+              <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center text-blue-500 border-2 border-dashed border-blue-300">
+                <Plus className="w-5 h-5" />
+              </div>
+              <p className="text-sm text-blue-500 font-medium mt-2">Add Member</p>
             </div>
-            <p className="text-sm text-blue-500 font-medium mt-2">Add Member</p>
-          </div>
+          )}
         </div>
       </div>
 
@@ -308,6 +398,56 @@ export default function Nember({ projectId: propProjectId, projectParticipants =
                 Dismiss
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {openAddModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-[90%] md:w-[450px] p-6 relative shadow-2xl">
+            <button
+              onClick={() => setOpenAddModal(false)}
+              className="absolute top-4 right-4 text-gray-500 hover:text-black"
+            >
+              <X size={22} />
+            </button>
+            <h2 className="text-xl font-semibold mb-4">Add Project Member</h2>
+            <form onSubmit={handleAddMemberSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee</label>
+                {availableUsers.length > 0 ? (
+                  <select
+                    value={selectedUserToAdd}
+                    onChange={(e) => setSelectedUserToAdd(e.target.value)}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {availableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name} ({user.email})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm text-gray-500">No other employees available to add.</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setOpenAddModal(false)}
+                  className="px-5 py-2 rounded-full border border-gray-300 text-sm hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingMember || !selectedUserToAdd}
+                  className="px-5 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {addingMember ? "Adding..." : "Add Member"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

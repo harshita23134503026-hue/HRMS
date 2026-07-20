@@ -32,7 +32,7 @@ const ProjectPage = () => {
     if (!projectId) return;
     setLoading(true);
 
-    const unsubscribe = onSnapshot(doc(db, "project", projectId), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, "projects", projectId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setProject({
@@ -235,7 +235,7 @@ const ProjectPage = () => {
           taskId={projectId}
           onSubmitTask={async (projId) => {
             try {
-              await updateDoc(doc(db, "project", projId), {
+              await updateDoc(doc(db, "projects", projId), {
                 status: "completed",
                 progress: 100
               });
