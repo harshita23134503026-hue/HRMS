@@ -77,7 +77,7 @@ const Navbar = () => {
         {/* Avatar */}
         <div
           className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => navigate('/settings')}
+          onClick={() => navigate('/profile')}
         >
           <img
             src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${userData.name}`}

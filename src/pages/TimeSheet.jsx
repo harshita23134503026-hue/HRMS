@@ -145,21 +145,16 @@ const TimeSheet = () => {
       }
 
       /*
-        User profile document ID is the email:
-
-        users/employee@example.com
+        User profile document ID is the email with '.' replaced by '_':
+        users/user_example_com
       */
-      const profileRef = doc(
-        db,
-        'users',
-        user.email.toLowerCase()
-      );
+      const emailDocId = user.email.toLowerCase().replace(/\./g, '_');
+      const profileRef = doc(db, 'users', emailDocId);
 
       unsubscribeProfile = onSnapshot(
         profileRef,
         (snapshot) => {
           const userProfile = snapshot.data() || {};
-
           setCurrentUserRole(userProfile.role || 'employee');
         },
         (error) => {
@@ -197,39 +192,35 @@ const TimeSheet = () => {
             /*
               Every user document must contain uid.
               This UID maps to timesheet/{uid}.
+              Document ID is email with '.' replaced by '_'.
             */
-            const userUid =
-              userData.uid ||
-              (userData.email?.toLowerCase() ===
-              currentUser.email?.toLowerCase()
-                ? currentUser.uid
-                : '');
+            const userUid = userData.uid;
 
             return {
               uid: userUid,
-              userEmailDocumentId: userDocument.id,
+              userEmailDocumentId: userDocument.id, // This is email with . replaced by _
               name: getEmployeeName(userData, userDocument.id),
-              email: userData.email || userDocument.id,
+              email: userData.email || userDocument.id.replace(/_/g, '.'),
               role: userData.role || 'employee',
             };
           })
-          .filter((employee) => employee.uid);
+          .filter((employee) => employee.uid); // Only include employees with valid uid
 
         // Keep current user in the list if needed.
         const currentUserExists = employeeList.some(
           (employee) => employee.uid === currentUser.uid
         );
 
-        if (!currentUserExists) {
+        if (!currentUserExists && currentUser.email) {
+          const currentUserEmailDocId = currentUser.email.toLowerCase().replace(/\./g, '_');
           employeeList.unshift({
             uid: currentUser.uid,
-            userEmailDocumentId:
-              currentUser.email?.toLowerCase() || currentUser.uid,
+            userEmailDocumentId: currentUserEmailDocId,
             name:
               currentUser.displayName ||
-              currentUser.email?.split('@')[0] ||
+              currentUser.email.split('@')[0] ||
               'My Timesheet',
-            email: currentUser.email || '',
+            email: currentUser.email,
             role: currentUserRole,
           });
         }
@@ -264,20 +255,14 @@ const TimeSheet = () => {
 
     /*
       Timesheet document ID is Firebase Auth UID:
-
       timesheet/{selectedEmployeeId}
     */
-    const timesheetRef = doc(
-      db,
-      'timesheet',
-      selectedEmployeeId
-    );
+    const timesheetRef = doc(db, 'timesheet', selectedEmployeeId);
 
     const unsubscribeTimesheet = onSnapshot(
       timesheetRef,
       (snapshot) => {
         const timesheetData = snapshot.data() || {};
-
         setTimesheetEntries(timesheetData.entries || {});
         setIsTimesheetLoading(false);
       },
@@ -361,13 +346,11 @@ const TimeSheet = () => {
 
   const isToday = (cell) => {
     const cellDate = new Date(cell.year, cell.month, cell.day);
-
     return isSameDate(cellDate, today);
   };
 
   const isYesterday = (cell) => {
     const cellDate = new Date(cell.year, cell.month, cell.day);
-
     return isSameDate(cellDate, yesterday);
   };
 
@@ -760,10 +743,7 @@ const TimeSheet = () => {
 
             {/* Calendar Dates */}
             {weeks.map((week, weekIndex) => (
-              <div
-                key={weekIndex}
-                className="grid grid-cols-7 border-l border-gray-200"
-              >
+              <div key={weekIndex} className="grid grid-cols-7 border-l border-gray-200">
                 {week.map((cell, cellIndex) => {
                   const dateKey = getDateStr(cell);
                   const data = calendarTaskData[dateKey];
@@ -843,9 +823,7 @@ const TimeSheet = () => {
                       {/* Plus is restricted to Today and Yesterday */}
                       {canAddTask && (
                         <button
-                          onClick={(event) =>
-                            handleAddClick(event, cell)
-                          }
+                          onClick={(event) => handleAddClick(event, cell)}
                           className="absolute bottom-2 right-2 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-blue-700 hover:scale-110 transition-all shadow-md"
                           title="Add task on this day"
                         >

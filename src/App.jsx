@@ -15,6 +15,8 @@ import AssignTask from "./pages/AssignTask";
 import AddTaskPage from "./components/AddTaskPage";
 import DayDetailsModal from "./components/DayDetailsModal";
 import OrgChart from "./components/Nember/orgchart";
+import ProfileSettings from "./pages/Profile";
+import Team from "./pages/Team";
 
 function App() {
   const location = useLocation();
@@ -40,25 +42,16 @@ function App() {
           <Route path="/assigntask" element={<AssignTask />} />
           <Route path="/createproject" element={<CreateProjects />} />
           <Route path="/projects/:projectId" element={<ProjectPage />} />
-          <Route
-            path="/projects/:projectId/tasks/:taskId/updates"
-            element={<TaskUpdates />}
-          />
+          <Route path="/projects/:projectId/tasks/:taskId/updates"element={<TaskUpdates />}/>
           <Route path="/leaveApply" element={<LeaveManagement />} />
-          <Route
-            path="/RegularizationApply"
-            element={<RegularizationWindow />}
-          />
+          <Route path="/RegularizationApply" element={<RegularizationWindow />}/>
           <Route path="/taskupdates" element={<TaskUpdates />} />
-
+          <Route path="/profile" element={<ProfileSettings />} />
+          <Route path="/team" element={<Team />} />
           {/* Task creation - full page */}
           <Route path="/task/new/:date" element={<AddTaskPage />} />
-
           {/* Day details - standalone (direct URL visit / refresh) */}
-          <Route
-            path="/day/:date"
-            element={<DayDetailsModal standalone />}
-          />
+          <Route path="/day/:date" element={<DayDetailsModal standalone />}/>
         </Route>
       </Routes>
 
