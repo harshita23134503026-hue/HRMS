@@ -95,8 +95,6 @@ function ProjectCard({ project, onViewClick }) {
         borderColor: colors.borderCard,
         backgroundColor: colors.bgCard,
         boxShadow: colors.shadowSm,
-        "--tw-border-opacity": "1",
-        "--tw-shadow-color": "rgba(0, 0, 0, 0.1)",
       }}
     >
       {project.priority && (
@@ -125,10 +123,10 @@ function ProjectCard({ project, onViewClick }) {
       </div>
       <div className="flex items-center justify-between">
         <div className="flex items-center">
-          {(project.team || []).slice(0, 3).map((avatar, index) => (
+          {(project.team || []).slice(0, 3).map((avatarUrl, index) => (
             <img
               key={index}
-              src={avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(project.participants?.[index] || index)}`}
+              src={avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(project.participants?.[index] || index)}`}
               alt="Team member"
               className="relative -ml-2 h-6 w-6 rounded-full border-2 border-white object-cover first:ml-0"
             />
@@ -191,8 +189,6 @@ function ProjectColumn({ title, count, projects, type, onCreateProject, canCreat
             style={{
               borderColor: colors.borderDefault,
               color: colors.textMedium,
-              "--tw-border-opacity": "1",
-              "--tw-shadow-color": "rgba(0, 0, 0, 0.1)",
             }}
           >
             <Plus size={16} />
@@ -212,79 +208,96 @@ function ProjectColumn({ title, count, projects, type, onCreateProject, canCreat
 export default function ProjectsView() {
   const navigate = useNavigate();
 
-  // Dynamic role-based permissions
+  // ─── Get basic user info from token ─────────────────────────
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
   const userEmail = currentUser?.email || "";
   const sanitizedEmail = userEmail ? userEmail.replace(/\./g, "_") : null;
 
-  const canCreateProject = ["admin", "sadmin", "hr", "hr_manager", "member", "Member"].includes(currentRole) ||
-    (Array.isArray(currentUser?.childrenuid) && currentUser.childrenuid.length > 0);
-
+  // ─── State ──────────────────────────────────────────────────
   const [projects, setProjects] = useState([]);
   const [userProjectIds, setUserProjectIds] = useState([]);
+  const [childrenuid, setChildrenuid] = useState([]);
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingProjects, setLoadingProjects] = useState(true);
 
-  // Subscribe to user doc to get their assigned project IDs in real-time
+  // ─── Derive canCreateProject from role + Firestore childrenuid ───
+  const canCreateProject =
+    ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole) ||
+    childrenuid.length > 0;
+
+  // ─── Subscribe to user doc (fetches projectIds AND childrenuid) ───
   useEffect(() => {
     if (!sanitizedEmail) {
       setLoadingUser(false);
       return;
     }
+
     const userDocRef = doc(db, "users", sanitizedEmail);
-    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setUserProjectIds(docSnap.data()?.projectIds || []);
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const userData = docSnap.data();
+          setUserProjectIds(userData?.projectIds || []);
+          setChildrenuid(Array.isArray(userData?.childrenuid) ? userData.childrenuid : []);
+        }
+        setLoadingUser(false);
+      },
+      (err) => {
+        console.error("Error listening to user doc:", err);
+        setLoadingUser(false);
       }
-      setLoadingUser(false);
-    }, (err) => {
-      console.error("Error listening to user doc:", err);
-      setLoadingUser(false);
-    });
+    );
+
     return () => unsubscribe();
   }, [sanitizedEmail]);
 
-  // Subscribe to project collection
+  // ─── Subscribe to projects collection ───────────────────────
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "projects"), (snapshot) => {
-      const projectsList = [];
-      snapshot.forEach((doc) => {
-        projectsList.push({ id: doc.id, ...doc.data() });
-      });
-      setProjects(projectsList);
-      setLoadingProjects(false);
-    }, (err) => {
-      console.error("Error listening to projects: ", err);
-      setLoadingProjects(false);
-    });
+    const unsubscribe = onSnapshot(
+      collection(db, "projects"),
+      (snapshot) => {
+        const projectsList = [];
+        snapshot.forEach((doc) => {
+          projectsList.push({ id: doc.id, ...doc.data() });
+        });
+        setProjects(projectsList);
+        setLoadingProjects(false);
+      },
+      (err) => {
+        console.error("Error listening to projects: ", err);
+        setLoadingProjects(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
 
-  const filteredProjects = projects.filter(p => {
-    // Admin role can see all projects
-    if (currentRole === "admin" || currentRole === "sadmin" || currentRole === "hr" || currentRole === "hr_manager") {
+  // ─── Filter projects based on role/assignment ───────────────
+  const filteredProjects = projects.filter((p) => {
+    if (["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)) {
       return true;
     }
 
-    // Only show projects that are in the user's projectIds array, 
-    // or if the user's sanitized email is listed in the project's participants.
     const isAssignedById = userProjectIds.includes(p.id);
-    const isAssignedByParticipants = Array.isArray(p.participants) && p.participants.includes(sanitizedEmail);
+    const isAssignedByParticipants =
+      Array.isArray(p.participants) && p.participants.includes(sanitizedEmail);
 
     return isAssignedById || isAssignedByParticipants;
   });
 
-  const pendingProjectsApi = filteredProjects.filter(p => {
+  const pendingProjectsApi = filteredProjects.filter((p) => {
     const s = (p.status || "").toLowerCase();
     return s === "pending" || s === "upcoming";
   });
-  const inProgressProjectsApi = filteredProjects.filter(p => {
+
+  const inProgressProjectsApi = filteredProjects.filter((p) => {
     const s = (p.status || "").toLowerCase();
     return s === "progress" || s === "in progress" || s === "running";
   });
-  const completedProjectsApi = filteredProjects.filter(p => {
+
+  const completedProjectsApi = filteredProjects.filter((p) => {
     const s = (p.status || "").toLowerCase();
     return s === "completed" || s === "ended";
   });
@@ -317,9 +330,33 @@ export default function ProjectsView() {
               </h1>
             </div>
             <div className="grid h-full items-start gap-8 lg:grid-cols-3 md:grid-cols-2 grid-cols-1">
-              <ProjectColumn title="Upcoming" count={pendingProjectsApi.length} projects={pendingProjectsApi} type="Upcoming" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
-              <ProjectColumn title="In Progress" count={inProgressProjectsApi.length} projects={inProgressProjectsApi} type="progress" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
-              <ProjectColumn title="Completed" count={completedProjectsApi.length} projects={completedProjectsApi} type="completed" canCreateProject={canCreateProject} onCreateProject={() => navigate("/createproject")} onProjectClick={handleProjectClick} />
+              <ProjectColumn
+                title="Upcoming"
+                count={pendingProjectsApi.length}
+                projects={pendingProjectsApi}
+                type="pending"
+                canCreateProject={canCreateProject}
+                onCreateProject={() => navigate("/createproject")}
+                onProjectClick={handleProjectClick}
+              />
+              <ProjectColumn
+                title="In Progress"
+                count={inProgressProjectsApi.length}
+                projects={inProgressProjectsApi}
+                type="progress"
+                canCreateProject={canCreateProject}
+                onCreateProject={() => navigate("/createproject")}
+                onProjectClick={handleProjectClick}
+              />
+              <ProjectColumn
+                title="Completed"
+                count={completedProjectsApi.length}
+                projects={completedProjectsApi}
+                type="completed"
+                canCreateProject={canCreateProject}
+                onCreateProject={() => navigate("/createproject")}
+                onProjectClick={handleProjectClick}
+              />
             </div>
           </div>
         </main>

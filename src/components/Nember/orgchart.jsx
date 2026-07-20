@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, writeBatch, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db, getUserFromToken } from "../../firebase";
 
 const buildTreeFromUsers = (users) => {
@@ -418,21 +418,21 @@ export default function OrgChart() {
       const parentEmailKey = parentUser.email.replace(/\./g, "_");
       const childEmailKey = childUser.email.replace(/\./g, "_");
 
+      const batch = writeBatch(db);
+
       // Update parent: append child's uid to childrenuid
-      const currentParentChildren = parentUser.childrenuid || [];
-      if (!currentParentChildren.includes(childUid)) {
-        await updateDoc(doc(db, "users", parentEmailKey), {
-          childrenuid: [...currentParentChildren, childUid],
-        });
-      }
+      const parentRef = doc(db, "users", parentEmailKey);
+      batch.update(parentRef, {
+        childrenuid: arrayUnion(childUid),
+      });
 
       // Update child: set parent's uid in parentuid
-      const currentChildParents = childUser.parentuid || [];
-      if (!currentChildParents.includes(parentUid)) {
-        await updateDoc(doc(db, "users", childEmailKey), {
-          parentuid: [...currentChildParents, parentUid],
-        });
-      }
+      const childRef = doc(db, "users", childEmailKey);
+      batch.update(childRef, {
+        parentuid: arrayUnion(parentUid),
+      });
+
+      await batch.commit();
 
       setShowAddModal(false);
       setSearchTerm("");
@@ -461,25 +461,25 @@ export default function OrgChart() {
       );
       const childUser = usersList.find((u) => u.uid === nodeId);
 
+      const batch = writeBatch(db);
+
       if (parentUser) {
         const parentEmailKey = parentUser.email.replace(/\./g, "_");
-        const updatedChildren = parentUser.childrenuid.filter(
-          (uid) => uid !== nodeId
-        );
-        await updateDoc(doc(db, "users", parentEmailKey), {
-          childrenuid: updatedChildren,
+        const parentRef = doc(db, "users", parentEmailKey);
+        batch.update(parentRef, {
+          childrenuid: arrayRemove(nodeId),
         });
       }
 
-      if (childUser) {
+      if (childUser && parentUser) {
         const childEmailKey = childUser.email.replace(/\./g, "_");
-        const updatedParents = (childUser.parentuid || []).filter(
-          (uid) => uid !== parentUser?.uid
-        );
-        await updateDoc(doc(db, "users", childEmailKey), {
-          parentuid: updatedParents,
+        const childRef = doc(db, "users", childEmailKey);
+        batch.update(childRef, {
+          parentuid: arrayRemove(parentUser.uid),
         });
       }
+
+      await batch.commit();
 
       // Re-fetch and build tree
       await fetchUsersAndBuildTree();
