@@ -22,7 +22,7 @@ const ProjectPage = () => {
   // Dynamic admin check matching role-based permissions
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+  const isAdmin = ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole);
 
   const [openSubmitPopup, setOpenSubmitPopup] = useState(false);
   const [showAssignTask, setShowAssignTask] = useState(false);

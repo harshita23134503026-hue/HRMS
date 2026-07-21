@@ -275,7 +275,34 @@ const Dashboard = () => {
             return isAssignedById || isAssignedByParticipants
           })
 
-        setProjects(visibleProjects)
+        const mappedProjects = visibleProjects.map((p) => {
+          const currentStatus = (p.status || "").toLowerCase();
+          if (currentStatus === "completed" || currentStatus === "ended") {
+            return { ...p, status: "completed" };
+          }
+
+          if (p.startDate) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const projStartDate = new Date(p.startDate);
+            projStartDate.setHours(0, 0, 0, 0);
+
+            if (projStartDate > today) {
+              return { ...p, status: "pending" };
+            } else {
+              return { ...p, status: "progress" };
+            }
+          }
+
+          // Fallback
+          if (currentStatus === "pending" || currentStatus === "upcoming") {
+            return { ...p, status: "pending" };
+          }
+          return { ...p, status: "progress" };
+        });
+
+        setProjects(mappedProjects)
 
         if (adminAccess) {
           const usersSnapshot = await getDocs(collection(db, "users"))

@@ -87,13 +87,24 @@ function ProjectCard({ project, onViewClick }) {
   const priorityStyles = getPriorityStyles(project.priority)
   const progressColor = getProgressColor(project.status)
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const isOverdue = (() => {
+    if (project.status !== "progress") return false;
+    if (!project.endDate) return false;
+    const dueDate = new Date(project.endDate);
+    dueDate.setHours(0, 0, 0, 0);
+    return !isNaN(dueDate.getTime()) && dueDate < today;
+  })();
+
   return (
     <div
       className="mb-1 rounded-3xl border p-4 transition-all hover:-translate-y-px hover:bg-white cursor-pointer"
       onClick={() => onViewClick(project.id)}
       style={{
-        borderColor: colors.borderCard,
-        backgroundColor: colors.bgCard,
+        borderColor: isOverdue ? "#fecaca" : colors.borderCard,
+        backgroundColor: isOverdue ? "#fff5f5" : colors.bgCard,
         boxShadow: colors.shadowSm,
       }}
     >
@@ -223,7 +234,7 @@ export default function ProjectsView() {
 
   // ─── Derive canCreateProject from role + Firestore childrenuid ───
   const canCreateProject =
-    ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole) ||
+    ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole) ||
     childrenuid.length > 0;
 
   // ─── Subscribe to user doc (fetches projectIds AND childrenuid) ───
@@ -275,17 +286,44 @@ export default function ProjectsView() {
   }, []);
 
   // ─── Filter projects based on role/assignment ───────────────
-  const filteredProjects = projects.filter((p) => {
-    if (["admin", "sadmin", "hr", "hr_manager"].includes(currentRole)) {
-      return true;
-    }
+  const filteredProjects = projects
+    .map((p) => {
+      const currentStatus = (p.status || "").toLowerCase();
+      if (currentStatus === "completed" || currentStatus === "ended") {
+        return { ...p, status: "completed" };
+      }
 
-    const isAssignedById = userProjectIds.includes(p.id);
-    const isAssignedByParticipants =
-      Array.isArray(p.participants) && p.participants.includes(sanitizedEmail);
+      if (p.startDate) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-    return isAssignedById || isAssignedByParticipants;
-  });
+        const projStartDate = new Date(p.startDate);
+        projStartDate.setHours(0, 0, 0, 0);
+
+        if (projStartDate > today) {
+          return { ...p, status: "pending" };
+        } else {
+          return { ...p, status: "progress" };
+        }
+      }
+
+      // Fallback
+      if (currentStatus === "pending" || currentStatus === "upcoming") {
+        return { ...p, status: "pending" };
+      }
+      return { ...p, status: "progress" };
+    })
+    .filter((p) => {
+      if (["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole)) {
+        return true;
+      }
+
+      const isAssignedById = userProjectIds.includes(p.id);
+      const isAssignedByParticipants =
+        Array.isArray(p.participants) && p.participants.includes(sanitizedEmail);
+
+      return isAssignedById || isAssignedByParticipants;
+    });
 
   const pendingProjectsApi = filteredProjects.filter((p) => {
     const s = (p.status || "").toLowerCase();

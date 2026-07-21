@@ -330,7 +330,7 @@ export default function OrgChart() {
 
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+  const isAdmin = ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole);
 
   const zoomRef = useRef(1);
 

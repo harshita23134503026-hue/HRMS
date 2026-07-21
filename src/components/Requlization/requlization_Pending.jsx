@@ -57,7 +57,7 @@ function ReguPendingList() {
     return user?.role?.toLowerCase() || 'member'; 
   }, []);
 
-  const canManageRequests = ['admin', 'sadmin', 'hr', 'hr_manager'].includes(currentRole);
+  const canManageRequests = ['admin', 'sadmin', 'sr_project_manager', 'hr_manager'].includes(currentRole);
 
   // ─── Load Initial Data ─────────────────────────────────────────
   const fetchRequests = useCallback(() => {

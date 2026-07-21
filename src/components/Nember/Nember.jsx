@@ -58,7 +58,7 @@ export default function Nember({
   // Dynamic admin check matching role-based permissions
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const isAdmin = ["admin", "sadmin", "hr", "hr_manager"].includes(currentRole);
+  const isAdmin = ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole);
 
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [openAddModal, setOpenAddModal] = useState(false);
