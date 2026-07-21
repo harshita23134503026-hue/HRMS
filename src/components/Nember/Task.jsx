@@ -5,7 +5,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { db, getUserFromToken } from "../../firebase";
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc } from "firebase/firestore";
 
-// ─── Local date formatter ────────────────────────────────────
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
   try {
@@ -33,21 +32,17 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
   const [popupMode, setPopupMode] = useState("Update");
   const [selectedTask, setSelectedTask] = useState(null);
 
-  // Dynamic current user & admin role checks
   const currentUser = getUserFromToken();
   const currentUserId = currentUser?.id || currentUser?.uid || "";
   const currentRole = currentUser?.role?.toLowerCase() || "member";
   const isAdmin = ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole);
 
-  // ⭐ PAGINATION STATE
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 5;
 
-  // ⭐ LOAD TASKS FROM DB
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
-
     const q = query(collection(db, "tasks"), where("projectId", "==", projectId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const taskList = [];
@@ -62,31 +57,25 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
       setError("Failed to fetch tasks");
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [projectId]);
 
-  // ⭐ FILTER TASKS BASED ON taskFilter PROP
   useEffect(() => {
     let filtered = [...tasks];
-
     const isCurrentUser = (user) => {
       if (!user) return false;
       const currentUserEmail = currentUser?.email?.toLowerCase() || "";
       const currentUserSanitizedEmail = currentUserEmail.replace(/\./g, "_");
-      
       if (typeof user === "object") {
         const userId = (user.id || user._id || "").toLowerCase();
         const userUid = user.uid || "";
         const userEmail = (user.email || "").toLowerCase();
-        
         return (
           (userUid && userUid === currentUserId) ||
           (userEmail && userEmail === currentUserEmail) ||
           (userId && (userId === currentUserSanitizedEmail || userId === currentUserEmail))
         );
       }
-      
       const val = String(user).toLowerCase();
       return (
         val === currentUserId ||
@@ -106,10 +95,9 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     }
 
     setFilteredTasks(filtered);
-    setCurrentPage(1); // Reset to first page when filter changes
-  }, [taskFilter, tasks, currentUserId, currentUser]);
+    setCurrentPage(1);
+  }, [taskFilter, tasks, currentUserId]);
 
-  // ⭐ STATUS COLOR MAPPING
   const statusColor = {
     Completed: "text-green-600 bg-green-100",
     "In Progress": "text-yellow-600 bg-yellow-100",
@@ -117,26 +105,18 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     Pending: "text-orange-600 bg-orange-100",
   };
 
-  // ⭐ CALCULATE DYNAMIC STATUS BASED ON DATES
   const calculateStatus = (task) => {
-    if (task.status === "Completed") {
-      return "Completed";
-    }
-
+    if (task.status === "Completed") return "Completed";
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
     const startDate = task.startDate ? new Date(task.startDate) : null;
     const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-
     if (startDate) startDate.setHours(0, 0, 0, 0);
     if (dueDate) dueDate.setHours(0, 0, 0, 0);
-
     if (startDate && today < startDate) return "Not Started";
     if (dueDate && today > dueDate) return "Pending";
     if (startDate && dueDate && today >= startDate && today <= dueDate)
       return "In Progress";
-
     return "Not Started";
   };
 
@@ -152,18 +132,13 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     navigate(`/projects/${projectId}/tasks/${task.id}/updates`, { state: { task } });
   };
 
-  // ⭐ HANDLE TASK ACTIONS (updates Firestore database and creates history log)
   const handleSubmitTask = async (taskId, description) => {
     try {
       const creatorName = currentUser?.name || "Unknown Member";
       const creatorEmail = currentUser?.email || "";
       const creatorUid = currentUser?.id || currentUser?.uid || "";
-
       if (popupMode === "Submit") {
-        // 1. Mark task status as Completed
         await updateDoc(doc(db, "tasks", taskId), { status: "Completed" });
-
-        // 2. Write details to the new "submissions" collection
         await addDoc(collection(db, "submissions"), {
           taskId,
           projectId,
@@ -173,7 +148,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
           status: "Completed"
         });
       } else {
-        // Write regular task progress update to the "updates" collection
         await addDoc(collection(db, "updates"), {
           taskId,
           projectId,
@@ -183,29 +157,23 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
           status: selectedTask?.status || "In Progress"
         });
       }
-
       console.log(`Task ${popupMode === "Submit" ? "submitted" : "updated"} successfully`);
     } catch (err) {
       console.error("Error submitting/updating task:", err);
       alert("Failed to submit update: " + err.message);
     }
-
     setPopupOpen(false);
   };
 
-  // ⭐ PAGINATION LOGIC
   const totalPages = Math.ceil(filteredTasks.length / rowsPerPage);
   const startIndex = (currentPage - 1) * rowsPerPage;
   const paginatedTasks = filteredTasks.slice(startIndex, startIndex + rowsPerPage);
 
-  // ⭐ CHECK IF TASK IS ASSIGNED TO CURRENT USER (Matching on email, sanitized email, or UID)
   const isTaskAssignedToUser = (task) => {
     if (!currentUser) return false;
-
     const currentEmail = currentUser.email || "";
     const currentUserId = currentUser.id || currentUser.uid || "";
     const currentSanitizedEmail = currentEmail.replace(/\./g, "_");
-
     return (
       task.assignedTo &&
       (Array.isArray(task.assignedTo)
@@ -255,8 +223,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
 
   return (
     <div className="w-full p-3 sm:p-4 lg:py-6">
-
-      {/* TABLE */}
       <div className="overflow-x-auto w-full">
         <table className="w-full table-auto border-separate border-spacing-y-3 min-w-[900px]">
           <thead>
@@ -270,7 +236,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
               <th className="px-4 lg:px-6 py-4 rounded-r-lg">Submit</th>
             </tr>
           </thead>
-
           <tbody>
             {paginatedTasks.map((task) => {
               const assignedToUser = isTaskAssignedToUser(task);
@@ -292,7 +257,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                       {task.description}
                     </button>
                   </td>
-
                   <td className="px-4 lg:px-6 py-5">
                     <div className="flex items-center gap-2">
                       <img
@@ -311,15 +275,12 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                       </span>
                     </div>
                   </td>
-
                   <td className="px-4 lg:px-6 py-5 text-gray-600">
                     {formatDate(task.startDate)}
                   </td>
-
                   <td className="px-4 lg:px-6 py-5 text-gray-600">
                     {formatDate(task.dueDate)}
                   </td>
-
                   <td className="px-4 lg:px-6 py-5">
                     <span
                       className={`text-xs font-medium px-2 py-1 border rounded-full ${
@@ -329,8 +290,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                       {calculateStatus(task)}
                     </span>
                   </td>
-
-                  {/* UPDATE BUTTON */}
                   <td className="px-4 lg:px-6 py-5">
                     <button
                       disabled={!canAccessTask}
@@ -344,8 +303,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                       Updates
                     </button>
                   </td>
-
-                  {/* SUBMIT BUTTON */}
                   <td className="px-4 lg:px-6 py-5">
                     <button
                       disabled={!canAccessTask}
@@ -365,8 +322,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
           </tbody>
         </table>
       </div>
-
-      {/* PAGINATION */}
       <div className="mt-4 flex justify-center">
         <Pagination
           currentPage={currentPage}
@@ -374,8 +329,6 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
           onPageChange={setCurrentPage}
         />
       </div>
-
-      {/* POPUP */}
       <Submit
         isOpen={popupOpen}
         onClose={() => setPopupOpen(false)}

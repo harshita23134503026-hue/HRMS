@@ -61,13 +61,13 @@ const normalizeRole = (role = '') =>
     .replace(/[_-]/g, ' ')
     .trim();
 
-const isAdminOrProjectManager = (role) => {
+const isAdminOrSrProjectManager = (role) => {
   const normalizedRole = normalizeRole(role);
 
   return (
     normalizedRole === 'admin' ||
-    normalizedRole === 'project manager' ||
-    normalizedRole === 'projectmanager'
+    normalizedRole === 'sr project manager' ||
+    normalizedRole === 'srprojectmanager'
   );
 };
 
@@ -170,7 +170,7 @@ const TimeSheet = () => {
     };
   }, []);
 
-  const canSelectEmployees = isAdminOrProjectManager(currentUserRole);
+  const canSelectEmployees = isAdminOrSrProjectManager(currentUserRole);
 
   // ─── Load employee list for Admin / Project Manager ───
   useEffect(() => {
