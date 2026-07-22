@@ -33,6 +33,26 @@ const getPresenceBadgeClass = () => "bg-gray-200 text-gray-600";
 const getPresenceBadgeLabel = (member, nowTick) =>
   formatLastSeen(member.lastSeenAt, nowTick);
 
+const getAvatarColor = (name) => {
+  const colors = [
+    "bg-blue-500",
+    "bg-green-500",
+    "bg-indigo-500",
+    "bg-purple-500",
+    "bg-pink-500",
+    "bg-rose-500",
+    "bg-amber-500",
+    "bg-teal-500",
+  ];
+  if (!name) return "bg-gray-500";
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+};
+
 export default function Nember({
   projectId: propProjectId,
   projectParticipants = [],
@@ -399,11 +419,9 @@ export default function Nember({
               className="bg-white rounded-2xl text-center py-11 pb-0 relative flex flex-col items-center justify-between gap-2 h-72"
             >
               <div className="relative inline-flex">
-                <img
-                  src={`https://i.pravatar.cc/150?img=${member.img}`}
-                  alt={member.name}
-                  className="w-20 h-20 rounded-full"
-                />
+                <div className={`w-20 h-20 rounded-full ${getAvatarColor(member.name)} text-white flex items-center justify-center text-3xl font-bold uppercase select-none shadow-sm`}>
+                  {member.name ? member.name.charAt(0) : "?"}
+                </div>
                 {member.isOnline ? (
                   <span
                     className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(true)}`}
