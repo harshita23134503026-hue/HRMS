@@ -1,11 +1,16 @@
 import React, { useState } from "react";
+
 import { useNavigate } from "react-router-dom";
+
 import { doc, setDoc, getDoc } from "firebase/firestore";
+
 import { db, auth } from "../firebase";
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from "firebase/auth";
+
 
 const Login = () => {
   const [name, setName] = useState("");
@@ -16,6 +21,7 @@ const Login = () => {
   const [showPasswordRules, setShowPasswordRules] = useState(false);
   const navigate = useNavigate();
 
+
   // Default sign-in values for demo purposes
   const [signinemail, setsigninEmail] = useState("test07@gmail.com");
   const [signinpassword, setsigninPassword] = useState("test0987");
@@ -23,6 +29,7 @@ const Login = () => {
   const [form, setForm] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
 
   // Tab switcher for form view
   const switchToSigninForm = () => {
@@ -35,6 +42,7 @@ const Login = () => {
     setSuccess("");
   };
 
+
   // ─── Firebase Sign In ───
   const handleSignin = async (e) => {
     e.preventDefault();
@@ -46,19 +54,7 @@ const Login = () => {
     }
 
     try {
-      // Fetch user data from Firestore first
-      const sanitizedEmail = signinemail.replace(/\./g, "_");
-      const docRef = doc(db, "users", sanitizedEmail);
-      const docSnap = await getDoc(docRef);
-      
-      if (!docSnap.exists()) {
-        setError("No user found with this email.");
-        return;
-      }
-      
-      const userData = docSnap.data();
-
-      // Authenticate with Firebase
+      // 1. Authenticate first so request.auth != null
       const userCredential = await signInWithEmailAndPassword(
         auth,
         signinemail,
@@ -66,19 +62,33 @@ const Login = () => {
       );
       const user = userCredential.user;
 
+      // 2. Only then read Firestore (rules require auth)
+      const sanitizedEmail = signinemail.replace(/\./g, "_");
+      const docRef = doc(db, "users", sanitizedEmail);
+      const docSnap = await getDoc(docRef);
+
+      if (!docSnap.exists()) {
+        setError("User profile not found.");
+        return;
+      }
+
+      const userData = docSnap.data();
+
       // Construct a token payload for RBAC
       const payload = {
         role: userData.role || "Member",
         companyCode:
-          userData.companyCode || userData.uid || user.uid || sanitizedEmail,
+          userData.companyCode ||
+          userData.uid ||
+          user.uid ||
+          sanitizedEmail,
         email: signinemail,
-        id: userData.uid || user.uid,
+        id: user.uid,
         name: userData.name || user.displayName || "",
       };
 
       const token = `offline.${btoa(JSON.stringify(payload))}.signature`;
 
-      // Store token and navigate
       localStorage.setItem("token", token);
       navigate("/dashboard");
     } catch (err) {
@@ -97,6 +107,7 @@ const Login = () => {
       }
     }
   };
+
 
   // ─── Firebase Sign Up ───
   const handleSignup = async (e) => {
@@ -137,11 +148,10 @@ const Login = () => {
         mobile,
         role: "Member",
         designation: "",
-        parentuid:[],
-        childrenuid:[],
+        parentuid: [],
+        childrenuid: [],
         projectIds: [],
         createdAt: new Date().toISOString(),
-
       });
 
       // Success
@@ -162,6 +172,7 @@ const Login = () => {
     }
   };
 
+
   const validatePassword = (pwd) => {
     return pwd.length < 8 || pwd === email || !/[0-9!@#$%^&*]/.test(pwd);
   };
@@ -171,6 +182,7 @@ const Login = () => {
     setPassword(value);
     setShowPasswordRules(validatePassword(value));
   };
+
 
   return (
     <div className="flex h-[100vh]">
@@ -369,7 +381,7 @@ const Login = () => {
                 By signing up to create an account I accept Company's
                 <br />
                 <span className="text-black">
-                  Terms of use & Privacy Policy
+                  Terms of use &amp; Privacy Policy
                 </span>
               </p>
             </form>
@@ -484,5 +496,6 @@ const Login = () => {
     </div>
   );
 };
+
 
 export default Login;

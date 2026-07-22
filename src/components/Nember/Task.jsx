@@ -98,6 +98,7 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
     setCurrentPage(1);
   }, [taskFilter, tasks, currentUserId]);
 
+
   const statusColor = {
     Completed: "text-green-600 bg-green-100",
     "In Progress": "text-yellow-600 bg-yellow-100",
@@ -178,21 +179,21 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
       task.assignedTo &&
       (Array.isArray(task.assignedTo)
         ? task.assignedTo.some((user) => {
-            if (typeof user === "object") {
-              const uEmail = user.email || (user.id && user.id.includes("@") ? user.id : "");
-              const uSanitizedEmail = user.id || "";
-              return (
-                (user.uid && user.uid === currentUserId) ||
-                (uEmail && uEmail.toLowerCase() === currentEmail.toLowerCase()) ||
-                (uSanitizedEmail && uSanitizedEmail.toLowerCase() === currentSanitizedEmail.toLowerCase())
-              );
-            }
+          if (typeof user === "object") {
+            const uEmail = user.email || (user.id && user.id.includes("@") ? user.id : "");
+            const uSanitizedEmail = user.id || "";
             return (
-              user === currentUserId ||
-              user === currentEmail ||
-              user === currentSanitizedEmail
+              (user.uid && user.uid === currentUserId) ||
+              (uEmail && uEmail.toLowerCase() === currentEmail.toLowerCase()) ||
+              (uSanitizedEmail && uSanitizedEmail.toLowerCase() === currentSanitizedEmail.toLowerCase())
             );
-          })
+          }
+          return (
+            user === currentUserId ||
+            user === currentEmail ||
+            user === currentSanitizedEmail
+          );
+        })
         : false)
     );
   };
@@ -249,9 +250,8 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                     <button
                       type="button"
                       disabled={!canAccessTask}
-                      className={`text-left w-full ${
-                        canAccessTask ? "hover:text-blue-600 cursor-pointer" : ""
-                      }`}
+                      className={`text-left w-full ${canAccessTask ? "hover:text-blue-600 cursor-pointer" : ""
+                        }`}
                       onClick={() => canAccessTask && goToUpdatesPage(task)}
                     >
                       {task.description}
@@ -283,9 +283,8 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                   </td>
                   <td className="px-4 lg:px-6 py-5">
                     <span
-                      className={`text-xs font-medium px-2 py-1 border rounded-full ${
-                        statusColor[calculateStatus(task)] || "text-gray-600 bg-gray-100"
-                      }`}
+                      className={`text-xs font-medium px-2 py-1 border rounded-full ${statusColor[calculateStatus(task)] || "text-gray-600 bg-gray-100"
+                        }`}
                     >
                       {calculateStatus(task)}
                     </span>
@@ -294,11 +293,10 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                     <button
                       disabled={!canAccessTask}
                       onClick={() => canAccessTask && openPopup(task, "Update")}
-                      className={`text-sm px-3 py-1 rounded-full transition ${
-                        canAccessTask
+                      className={`text-sm px-3 py-1 rounded-full transition ${canAccessTask
                           ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
                           : ""
-                      }`}
+                        }`}
                     >
                       Updates
                     </button>
@@ -307,11 +305,10 @@ const Task = ({ projectId: propProjectId, taskFilter = "all" }) => {
                     <button
                       disabled={!canAccessTask}
                       onClick={() => canAccessTask && openPopup(task, "Submit")}
-                      className={`text-sm px-3 py-1 rounded-full transition ${
-                        canAccessTask
+                      className={`text-sm px-3 py-1 rounded-full transition ${canAccessTask
                           ? "text-blue-500 border border-blue-500 hover:bg-blue-50 cursor-pointer"
                           : ""
-                      }`}
+                        }`}
                     >
                       Submit
                     </button>

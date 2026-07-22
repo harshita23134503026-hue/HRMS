@@ -14,6 +14,7 @@ import { auth, db } from '../firebase';
 
 // ─── Date Helpers ───
 
+
 const getStartOfDay = (date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
@@ -122,7 +123,7 @@ const TimeSheet = () => {
 
   // ─── Get the logged-in user and their role ───
   useEffect(() => {
-    let unsubscribeProfile = () => {};
+    let unsubscribeProfile = () => { };
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       unsubscribeProfile();
@@ -560,11 +561,10 @@ const TimeSheet = () => {
           <div className="flex items-center gap-6">
             <button
               onClick={() => setActiveTopTab('Calendar View')}
-              className={`flex items-center gap-2 text-sm font-medium pb-1 border-b-2 transition ${
-                activeTopTab === 'Calendar View'
+              className={`flex items-center gap-2 text-sm font-medium pb-1 border-b-2 transition ${activeTopTab === 'Calendar View'
                   ? 'text-blue-600 border-blue-600'
                   : 'text-gray-500 border-transparent hover:text-gray-700'
-              }`}
+                }`}
             >
               <CalendarIcon size={16} />
               Calendar View
@@ -572,11 +572,10 @@ const TimeSheet = () => {
 
             <button
               onClick={() => setActiveTopTab('Table View')}
-              className={`flex items-center gap-2 text-sm font-medium pb-1 border-b-2 transition ${
-                activeTopTab === 'Table View'
+              className={`flex items-center gap-2 text-sm font-medium pb-1 border-b-2 transition ${activeTopTab === 'Table View'
                   ? 'text-blue-600 border-blue-600'
                   : 'text-gray-500 border-transparent hover:text-gray-700'
-              }`}
+                }`}
             >
               <TableIcon size={16} />
               Table View
@@ -623,11 +622,10 @@ const TimeSheet = () => {
                       <button
                         key={employee.uid}
                         onClick={() => handleSelectEmployee(employee)}
-                        className={`w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition ${
-                          selectedEmployeeId === employee.uid
+                        className={`w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition ${selectedEmployeeId === employee.uid
                             ? 'bg-blue-50'
                             : ''
-                        }`}
+                          }`}
                       >
                         <div className="text-sm font-medium text-gray-800">
                           {employee.name}
@@ -708,11 +706,10 @@ const TimeSheet = () => {
               <button
                 key={view}
                 onClick={() => setActiveView(view)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                  activeView === view
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${activeView === view
                     ? 'bg-white text-gray-900 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
-                }`}
+                  }`}
               >
                 {view}
               </button>
@@ -760,17 +757,14 @@ const TimeSheet = () => {
                     <div
                       key={cellIndex}
                       onClick={() => handleCellClick(cell)}
-                      className={`relative h-[110px] p-2 border-r border-b ${
-                        styles.border
-                      } ${styles.bg} ${
-                        isFaded ? 'opacity-50' : ''
-                      } group cursor-pointer hover:shadow-inner transition`}
+                      className={`relative h-[110px] p-2 border-r border-b ${styles.border
+                        } ${styles.bg} ${isFaded ? 'opacity-50' : ''
+                        } group cursor-pointer hover:shadow-inner transition`}
                     >
                       {/* Day Number */}
                       <div
-                        className={`text-sm font-medium ${
-                          isFaded ? 'text-gray-400' : 'text-gray-800'
-                        }`}
+                        className={`text-sm font-medium ${isFaded ? 'text-gray-400' : 'text-gray-800'
+                          }`}
                       >
                         {cell.day}
                       </div>
@@ -797,21 +791,19 @@ const TimeSheet = () => {
                           </div>
 
                           <div
-                            className={`text-[10px] font-medium ${
-                              data.status === 'green'
+                            className={`text-[10px] font-medium ${data.status === 'green'
                                 ? 'text-green-600'
                                 : 'text-red-500'
-                            }`}
+                              }`}
                           >
                             Total: {data.hours}
                           </div>
 
                           <div
-                            className={`text-[10px] font-semibold ${
-                              data.status === 'green'
+                            className={`text-[10px] font-semibold ${data.status === 'green'
                                 ? 'text-green-600'
                                 : 'text-red-500'
-                            }`}
+                              }`}
                           >
                             {data.status === 'green'
                               ? '6h+ Completed'
