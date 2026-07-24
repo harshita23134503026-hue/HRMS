@@ -1,9 +1,13 @@
 "use client"
 
 import { Plus, Eye, MessageCircle } from "lucide-react"
+
 import { useState, useEffect } from "react"
+
 import { useNavigate } from "react-router-dom"
+
 import { getUserFromToken, db } from "../firebase"
+
 import { collection, onSnapshot, doc } from "firebase/firestore"
 
 // Define colors directly in the component file
@@ -44,6 +48,10 @@ const colors = {
 // ─── Mock Data ───────────────────────────────────────────────
 const avatar = (seed) =>
   `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(seed)}`
+
+// ─── Role helper ────────────────────────────────────────────
+const normalizeRole = (role = "") =>
+  role.toLowerCase().trim().replace(/\s+/g, "_")
 
 // ProjectCard Component
 function ProjectCard({ project, onViewClick }) {
@@ -147,7 +155,7 @@ function ProjectCard({ project, onViewClick }) {
               className="relative -ml-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold"
               style={{ backgroundColor: colors.avatarCountBg, color: colors.avatarCountText }}
             >
-              {`+${(project.team || []).length - 3}`}
+              {`+${project.team.length - 3}`}
             </div>
           )}
         </div>
@@ -221,7 +229,7 @@ export default function ProjectsView() {
 
   // ─── Get basic user info from token ─────────────────────────
   const currentUser = getUserFromToken();
-  const currentRole = currentUser?.role?.toLowerCase() || "member";
+  const currentRole = normalizeRole(currentUser?.role);
   const userEmail = currentUser?.email || "";
   const sanitizedEmail = userEmail ? userEmail.replace(/\./g, "_") : null;
 
