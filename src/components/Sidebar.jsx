@@ -24,8 +24,8 @@ const menuItems = [
 ];
 
 const generalItems = [
-  { label: "Settings", icon: Settings, to: "/settings" },
-  { label: "Help", icon: HelpCircle, to: "/contact" },
+  { label: "Settings", icon: Settings, to: "/Settings" },
+  { label: "Help", icon: HelpCircle, to: "/Help" },
 ];
 
 const Sidebar = () => {

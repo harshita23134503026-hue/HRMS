@@ -1,16 +1,12 @@
 import React, { useState } from "react";
 
 import { useNavigate } from "react-router-dom";
-
 import { doc, setDoc, getDoc } from "firebase/firestore";
-
 import { db, auth } from "../firebase";
-
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from "firebase/auth";
-
 
 const Login = () => {
   const [name, setName] = useState("");
@@ -21,7 +17,6 @@ const Login = () => {
   const [showPasswordRules, setShowPasswordRules] = useState(false);
   const navigate = useNavigate();
 
-
   // Default sign-in values for demo purposes
   const [signinemail, setsigninEmail] = useState("test07@gmail.com");
   const [signinpassword, setsigninPassword] = useState("test0987");
@@ -29,7 +24,12 @@ const Login = () => {
   const [form, setForm] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  // Eye toggle states
+  const [showPasswordField, setShowPasswordField] = useState(false);
+  const [showConfirmPasswordField, setShowConfirmPasswordField] = useState(false);
+  const [showSigninPasswordField, setShowSigninPasswordField] = useState(false);
 
   // Tab switcher for form view
   const switchToSigninForm = () => {
@@ -42,14 +42,15 @@ const Login = () => {
     setSuccess("");
   };
 
-
   // ─── Firebase Sign In ───
   const handleSignin = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError("");
 
     if (!signinemail.trim() || !signinpassword.trim()) {
       setError("Please enter both email and password.");
+      setLoading(false);
       return;
     }
 
@@ -69,6 +70,7 @@ const Login = () => {
 
       if (!docSnap.exists()) {
         setError("User profile not found.");
+        setLoading(false);
         return;
       }
 
@@ -105,13 +107,15 @@ const Login = () => {
       } else {
         setError(err.message || "Authentication error.");
       }
+    } finally {
+      setLoading(false);
     }
   };
-
 
   // ─── Firebase Sign Up ───
   const handleSignup = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError("");
 
     if (
@@ -122,11 +126,13 @@ const Login = () => {
       !mobile.trim()
     ) {
       setError("Please fill all fields before signing up.");
+      setLoading(false);
       return;
     }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
+      setLoading(false);
       return;
     }
 
@@ -169,9 +175,10 @@ const Login = () => {
       } else {
         setError(err.message || "Something went wrong");
       }
+    } finally {
+      setLoading(false);
     }
   };
-
 
   const validatePassword = (pwd) => {
     return pwd.length < 8 || pwd === email || !/[0-9!@#$%^&*]/.test(pwd);
@@ -183,6 +190,53 @@ const Login = () => {
     setShowPasswordRules(validatePassword(value));
   };
 
+  // Spinner component
+  const Spinner = () => (
+    <>
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        .circle-spinner {
+          width: 18px;
+          height: 18px;
+          border: 3px solid #ffffff66;
+          border-top-color: #fff;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+      `}</style>
+      <div className="circle-spinner" />
+    </>
+  );
+
+  // Eye icon SVG
+  const EyeIcon = ({ open }) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-[#26203B]"
+    >
+      {open ? (
+        <>
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      ) : (
+        <>
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </>
+      )}
+    </svg>
+  );
 
   return (
     <div className="flex h-[100vh]">
@@ -277,14 +331,25 @@ const Login = () => {
                 <label className="block mb-1 font-medium text-xs text-[#26203B]">
                   Password
                 </label>
-                <input
-                  type="password"
-                  placeholder="Enter Password"
-                  className="w-full h-[48px] px-3 py-2 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={password}
-                  onChange={handlePasswordChange}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPasswordField ? "text" : "password"}
+                    placeholder="Enter Password"
+                    className="w-full h-[48px] px-3 py-2 pr-10 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    value={password}
+                    onChange={handlePasswordChange}
+                    required
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPasswordField((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#26203B] hover:text-blue-600 focus:outline-none"
+                    aria-label={showPasswordField ? "Hide password" : "Show password"}
+                  >
+                    <EyeIcon open={showPasswordField} />
+                  </button>
+                </div>
               </div>
 
               {/* Password Rules */}
@@ -302,14 +367,25 @@ const Login = () => {
                 <label className="block mb-1 font-medium text-xs text-[#26203B]">
                   Confirm Password
                 </label>
-                <input
-                  type="password"
-                  placeholder="Re-enter Password"
-                  className="w-full h-[48px] px-3 py-2 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPasswordField ? "text" : "password"}
+                    placeholder="Re-enter Password"
+                    className="w-full h-[48px] px-3 py-2 pr-10 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowConfirmPasswordField((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#26203B] hover:text-blue-600 focus:outline-none"
+                    aria-label={showConfirmPasswordField ? "Hide confirm password" : "Show confirm password"}
+                  >
+                    <EyeIcon open={showConfirmPasswordField} />
+                  </button>
+                </div>
               </div>
 
               {/* Mobile Number */}
@@ -343,9 +419,17 @@ const Login = () => {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4"
+                disabled={loading}
+                className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4 flex items-center justify-center gap-2 disabled:opacity-70"
               >
-                Create Account
+                {loading ? (
+                  <>
+                    <Spinner />
+                    <span>Creating...</span>
+                  </>
+                ) : (
+                  "Create Account"
+                )}
               </button>
 
               {/* OR Divider */}
@@ -435,14 +519,25 @@ const Login = () => {
                 <label className="block mb-1 font-medium text-xs text-[#26203B]">
                   Password
                 </label>
-                <input
-                  type="password"
-                  placeholder="Enter Password"
-                  className="w-full h-[48px] px-3 py-2 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  value={signinpassword}
-                  onChange={(e) => setsigninPassword(e.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showSigninPasswordField ? "text" : "password"}
+                    placeholder="Enter Password"
+                    className="w-full h-[48px] px-3 py-2 pr-10 border border-[#a192dd] rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    value={signinpassword}
+                    onChange={(e) => setsigninPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowSigninPasswordField((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#26203B] hover:text-blue-600 focus:outline-none"
+                    aria-label={showSigninPasswordField ? "Hide password" : "Show password"}
+                  >
+                    <EyeIcon open={showSigninPasswordField} />
+                  </button>
+                </div>
               </div>
 
               <div className="text-xs text-[#736e88] flex justify-end">
@@ -458,9 +553,17 @@ const Login = () => {
 
               <button
                 type="submit"
-                className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4"
+                disabled={loading}
+                className="w-full bg-[#20A4F3] text-white py-2 rounded hover:bg-blue-600 transition text-xs mt-4 flex items-center justify-center gap-2 disabled:opacity-70"
               >
-                Login
+                {loading ? (
+                  <>
+                    <Spinner />
+                    <span>Logging in...</span>
+                  </>
+                ) : (
+                  "Login"
+                )}
               </button>
 
               <div className="my-4 text-center text-xs text-[#9C9AA5]">OR</div>
@@ -496,6 +599,5 @@ const Login = () => {
     </div>
   );
 };
-
 
 export default Login;

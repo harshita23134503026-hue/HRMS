@@ -18,6 +18,8 @@ import OrgChart from "./components/Nember/orgchart";
 import ProfileSettings from "./pages/Profile";
 import Team from "./pages/Team";
 import LeaveBalanceEditorModal from "./pages/LeaveBalanceEditorModal";
+import Settings  from "./pages/Settings";
+import Help from "./pages/Help";
 
 function App() {
   const location = useLocation();
@@ -50,6 +52,8 @@ function App() {
           <Route path="/profile" element={<ProfileSettings />} />
           <Route path="/team" element={<Team />} />
           <Route path="/leaveBalanceEditor" element={<LeaveBalanceEditorModal />} />
+          <Route path="/Settings" element={<Settings />} />
+          <Route path="/Help" element={<Help />} />
           {/* Task creation - full page */}
           <Route path="/task/new/:date" element={<AddTaskPage />} />
           {/* Day details - standalone (direct URL visit / refresh) */}
