@@ -390,6 +390,13 @@ export default function Nember({
     }
   };
 
+  // Filter members if we are viewing a specific project
+  const displayMembers = projectId
+    ? members.filter((member) =>
+        projectParticipants.some((p) => p.id === member.id)
+      )
+    : members;
+
   if (loading) {
     return (
       <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
@@ -405,15 +412,15 @@ export default function Nember({
       <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-800">
-            All Users{" "}
+            {projectId ? "Project Members" : "All Users"}{" "}
             <span className="text-sm font-normal text-gray-500">
-              ({members.length} total)
+              ({displayMembers.length} total)
             </span>
           </h2>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {members.map((member, index) => (
+          {displayMembers.map((member, index) => (
             <div
               key={member.id || member.email}
               className="bg-white rounded-2xl text-center py-11 pb-0 relative flex flex-col items-center justify-between gap-2 h-72"
@@ -476,14 +483,17 @@ export default function Nember({
                         Edit
                       </button>
 
-                      <div className="border-t border-[#DDD9D9]" />
-
-                      <button
-                        onClick={() => deleteMember(member.email)}
-                        className="w-full text-center py-2 text-red-600 hover:bg-red-50"
-                      >
-                        Remove from Project
-                      </button>
+                      {projectId && (
+                        <>
+                          <div className="border-t border-[#DDD9D9]" />
+                          <button
+                            onClick={() => deleteMember(member.email)}
+                            className="w-full text-center py-2 text-red-600 hover:bg-red-50"
+                          >
+                            Remove from Project
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

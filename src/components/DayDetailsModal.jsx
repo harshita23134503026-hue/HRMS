@@ -68,7 +68,7 @@ const EntryCard = ({
 
           {canEdit && (
             <>
-              <button
+              {/* <button
                 type="button"
                 onClick={() => onEdit(entry.index)}
                 disabled={isSaving}
@@ -76,7 +76,7 @@ const EntryCard = ({
                 className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Pencil size={15} />
-              </button>
+              </button> */}
 
               <button
                 type="button"
@@ -88,7 +88,7 @@ const EntryCard = ({
                 <Copy size={15} />
               </button>
 
-              <button
+              {/* <button
                 type="button"
                 onClick={() => onDelete(entry.index)}
                 disabled={isSaving}
@@ -96,7 +96,7 @@ const EntryCard = ({
                 className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 size={15} />
-              </button>
+              </button> */}
             </>
           )}
         </div>
@@ -183,16 +183,16 @@ const DayDetailsModal = ({ standalone = false }) => {
   const [isRoleLoading, setIsRoleLoading] = useState(true);
 
   // Ref for timesheet-listener cleanup
-  const timesheetUnsubscribeRef = useRef(() => {});
+  const timesheetUnsubscribeRef = useRef(() => { });
 
   // ─── Get logged-in user and their role ───
 
   useEffect(() => {
-    let unsubscribeProfile = () => {};
+    let unsubscribeProfile = () => { };
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       unsubscribeProfile();
-      unsubscribeProfile = () => {};
+      unsubscribeProfile = () => { };
 
       if (!user) {
         setCurrentUser(null);
@@ -259,8 +259,8 @@ const DayDetailsModal = ({ standalone = false }) => {
     if (currentUser && employeeUid === currentUser.uid) {
       setEmployeeName(
         currentUser.displayName ||
-          currentUser.email?.split('@')[0] ||
-          'My Timesheet'
+        currentUser.email?.split('@')[0] ||
+        'My Timesheet'
       );
       return;
     }
@@ -275,7 +275,7 @@ const DayDetailsModal = ({ standalone = false }) => {
   useEffect(() => {
     // Clean up the previous listener before creating another one.
     timesheetUnsubscribeRef.current();
-    timesheetUnsubscribeRef.current = () => {};
+    timesheetUnsubscribeRef.current = () => { };
 
     if (!employeeUid) {
       setTasks([]);
@@ -338,7 +338,7 @@ const DayDetailsModal = ({ standalone = false }) => {
     return () => {
       unsubscribeTimesheet();
       if (timesheetUnsubscribeRef.current === unsubscribeTimesheet) {
-        timesheetUnsubscribeRef.current = () => {};
+        timesheetUnsubscribeRef.current = () => { };
       }
     };
   }, [
@@ -354,9 +354,9 @@ const DayDetailsModal = ({ standalone = false }) => {
 
   const canEdit = Boolean(
     currentUser &&
-      !isRoleLoading &&
-      (employeeUid === currentUser.uid ||
-        isAdminOrProjectManager(currentUserRole))
+    !isRoleLoading &&
+    (employeeUid === currentUser.uid ||
+      isAdminOrProjectManager(currentUserRole))
   );
 
   // ─── Save updated task array to target employee's document ───
@@ -437,8 +437,7 @@ const DayDetailsModal = ({ standalone = false }) => {
     }
 
     const shouldDelete = window.confirm(
-      `Are you sure you want to delete "${
-        selectedTask.taskTitle || 'this task'
+      `Are you sure you want to delete "${selectedTask.taskTitle || 'this task'
       }"?`
     );
 
