@@ -13,7 +13,7 @@ const buildTreeFromUsers = (users) => {
       name: u.name || u.email || "Unknown",
       role: u.designation || u.role || "Member",
       empId: u.email || "",
-      collapsed: false,
+      collapsed: true, // default collapsed — only the root is expanded after building
       children: [],
     };
   });
@@ -37,42 +37,45 @@ const buildTreeFromUsers = (users) => {
   // Find root candidates (users who are not children of anyone)
   const rootCandidates = users.filter((u) => !hasParent.has(u.uid));
 
+  let root;
   if (rootCandidates.length === 0) {
-    return nodeMap[users[0].uid];
+    root = nodeMap[users[0].uid];
+  } else {
+    // Prioritize explicitly marked root node
+    const explicitRoot = rootCandidates.find((r) => r.isRoot === true || r.isRoot === "true");
+    if (explicitRoot && nodeMap[explicitRoot.uid]) {
+      root = nodeMap[explicitRoot.uid];
+    } else {
+      // Choose the best root candidate
+      const rootWithChildren = rootCandidates.find(
+        (r) => r.childrenuid && r.childrenuid.length > 0
+      );
+      if (rootWithChildren) {
+        root = nodeMap[rootWithChildren.uid];
+      } else {
+        const adminRoot = rootCandidates.find((r) =>
+          ["admin", "sadmin"].includes(r.role?.toLowerCase())
+        );
+        if (adminRoot) {
+          root = nodeMap[adminRoot.uid];
+        } else {
+          root = nodeMap[rootCandidates[0].uid];
+        }
+      }
+    }
   }
 
-  // Prioritize explicitly marked root node
-  const explicitRoot = rootCandidates.find((r) => r.isRoot === true || r.isRoot === "true");
-  if (explicitRoot && nodeMap[explicitRoot.uid]) {
-    return nodeMap[explicitRoot.uid];
-  }
+  // Only the first card (root) is open by default; everything else stays collapsed
+  if (root) root.collapsed = false;
 
-  // Choose the best root candidate
-  const rootWithChildren = rootCandidates.find(
-    (r) => r.childrenuid && r.childrenuid.length > 0
-  );
-  if (rootWithChildren) {
-    return nodeMap[rootWithChildren.uid];
-  }
-
-  const adminRoot = rootCandidates.find((r) =>
-    ["admin", "sadmin"].includes(r.role?.toLowerCase())
-  );
-  if (adminRoot) {
-    return nodeMap[adminRoot.uid];
-  }
-
-  return nodeMap[rootCandidates[0].uid];
+  return root;
 };
-
 
 const COLORS = [
   "#2196F3", "#4CAF50", "#FF9800", "#9C27B0", "#E91E63",
   "#3F51B5", "#009688", "#FFC107", "#795548", "#00BCD4",
   "#FF5722", "#673AB7", "#8BC34A", "#607D8B", "#F44336"
 ];
-
-
 
 const CARD_W = 220;
 const CARD_H = 80;
@@ -85,21 +88,21 @@ const STATIC_TREE = {
   name: "CEO",
   role: "Chief Executive Officer",
   empId: "001",
-  collapsed: false,
+  collapsed: false, // root stays open
   children: [
     {
       id: 2,
       name: "John Doe",
       role: "Manager",
       empId: "101",
-      collapsed: false,
+      collapsed: true,
       children: [
         {
           id: 5,
           name: "Alex Brown",
           role: "Engineer",
           empId: "103",
-          collapsed: false,
+          collapsed: true,
           children: [],
         },
         {
@@ -107,7 +110,7 @@ const STATIC_TREE = {
           name: "Emily Davis",
           role: "Engineer",
           empId: "104",
-          collapsed: false,
+          collapsed: true,
           children: [],
         },
       ],
@@ -117,14 +120,14 @@ const STATIC_TREE = {
       name: "Jane Smith",
       role: "Lead",
       empId: "102",
-      collapsed: false,
+      collapsed: true,
       children: [
         {
           id: 7,
           name: "Michael Lee",
           role: "Designer",
           empId: "105",
-          collapsed: false,
+          collapsed: true,
           children: [],
         },
       ],
@@ -134,7 +137,7 @@ const STATIC_TREE = {
       name: "Sarah Wilson",
       role: "HR Manager",
       empId: "106",
-      collapsed: false,
+      collapsed: true,
       children: [],
     },
   ],
@@ -313,11 +316,42 @@ function NodeTree({ node, level, onEdit, onAdd, onRemove, onToggle, rootId, isAd
   );
 }
 
+// ─── Custom scrollbar CSS injected once (beautiful horizontal + vertical) ───
+const SCROLLBAR_STYLES = `
+.org-scroll::-webkit-scrollbar { width: 12px; height: 12px; }
+.org-scroll::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.5);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+.org-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #94a3b8, #64748b);
+  border-radius: 10px;
+  border: 3px solid #f0f4f8;
+  background-clip: padding-box;
+}
+.org-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #64748b, #475569);
+  border: 3px solid #f0f4f8;
+  background-clip: padding-box;
+}
+.org-scroll::-webkit-scrollbar-corner { background: transparent; }
+.org-scroll::-webkit-scrollbar-button { display: none; }
+
+/* Firefox */
+.org-scroll { scrollbar-width: thin; scrollbar-color: #64748b #e2e8f0; }
+`;
+
 export default function OrgChart() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [editingNode, setEditingNode] = useState(null);
   const containerRef = useRef(null);
+
+  // Drag-to-pan state (hand cursor control)
+  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const [tree, setTree] = useState(null);
   const [usersList, setUsersList] = useState([]);
@@ -367,6 +401,7 @@ export default function OrgChart() {
     fetchUsersAndBuildTree();
   }, []);
 
+  // Wheel zoom (kept as a secondary control)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -391,6 +426,41 @@ export default function OrgChart() {
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
   }, [pan.x, pan.y]);
+
+  // ─── Drag-to-pan: window listeners so the drag keeps working outside the box ───
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!isDraggingRef.current) return;
+      const { x, y, panX, panY } = dragStartRef.current;
+      // Move 1:1 on screen regardless of zoom by dividing by current zoom
+      setPan({
+        x: panX + (e.clientX - x),
+        y: panY + (e.clientY - y),
+      });
+    };
+    const onMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const handleMouseDown = (e) => {
+    // Only primary button, and don't start a drag when clicking a button/card action
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (target.closest("button")) return; // let buttons (toggle/add/menu) work normally
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  };
 
   const updateTree = (callback) => {
     setTree((prev) => {
@@ -527,7 +597,6 @@ export default function OrgChart() {
 
       const isEditingRoot = !parentUser;
 
-
       if (parentUser) {
         const parentEmailKey = parentUser.email.replace(/\./g, "_");
         const updatedChildren = parentUser.childrenuid.map((uid) =>
@@ -623,17 +692,27 @@ export default function OrgChart() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-8 font-sans" style={{ fontFamily: "Roboto, sans-serif" }}>
+      {/* Custom scrollbar CSS */}
+      <style>{SCROLLBAR_STYLES}</style>
+
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-1" style={{ fontFamily: "Inter, sans-serif" }}>
           Org Chart
         </h1>
       </div>
 
-      <div style={{ width: "100%", height: "70vh", overflow: "hidden", position: "relative", background: "#f0f4f8" }}>
-        {/* Canvas */}
+      <div style={{ width: "100%", height: "70vh", overflow: "hidden", position: "relative", background: "#f0f4f8", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+        {/* Canvas — drag to pan with hand cursor + beautiful scrollbars (horizontal & vertical) */}
         <div
           ref={containerRef}
-          style={{ width: "100%", height: "100%", overflowX: "auto", overflowY: "hidden", cursor: "default", WebkitOverflowScrolling: "touch" }}
+          onMouseDown={handleMouseDown}
+          className="org-scroll"
+          style={{
+            width: "100%", height: "100%",
+            overflowX: "auto", overflowY: "auto",
+            cursor: isDragging ? "grabbing" : "grab",
+            WebkitOverflowScrolling: "touch",
+          }}
         >
           <div style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -654,6 +733,11 @@ export default function OrgChart() {
               isAdmin={isAdmin}
             />
           </div>
+        </div>
+
+        {/* Drag hint */}
+        <div style={{ position: "absolute", left: 16, bottom: 16, fontSize: 12, color: "#64748b", background: "rgba(255,255,255,0.85)", padding: "6px 12px", borderRadius: 999, boxShadow: "0 1px 6px rgba(0,0,0,0.1)", userSelect: "none", backdropFilter: "blur(4px)" }}>
+          ✋ Drag to pan &nbsp;·&nbsp; 🖱 Scroll / zoom to navigate
         </div>
 
         {/* Zoom + Reset controls */}
@@ -677,8 +761,8 @@ export default function OrgChart() {
 
         {/* Edit modal */}
         {editingNode && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justify: "center", zIndex: 500 }}>
-            <div style={{ background: "#fff", borderRadius: 14, padding: 24, minWidth: 280, maxWeight: "80vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: 24, minWidth: 280, maxWidth: "80vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
               <h3 style={{ marginBottom: 16, fontSize: 16, fontWeight: "bold" }}>Select Employee</h3>
               <div style={{ maxHeight: "300px", overflowY: "auto", marginBottom: 12 }} className="custom-scrollbar">
                 {usersList.map((emp) => (
