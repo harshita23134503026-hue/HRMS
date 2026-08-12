@@ -1,28 +1,31 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { db, getUserFromToken } from "../../firebase";
 import {
-  doc,
-  updateDoc,
   arrayRemove,
-  collection,
-  getDocs,
   arrayUnion,
+  collection,
+  doc,
+  getDocs,
   onSnapshot,
+  updateDoc,
 } from "firebase/firestore";
 
 // ─── Presence helpers (frontend-only) ────────────────────────
 const formatLastSeen = (lastSeenAt, now) => {
   if (!lastSeenAt) return "Offline";
+
   const diffMs = now - new Date(lastSeenAt).getTime();
   const mins = Math.floor(diffMs / 60000);
+
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins}m`;
+
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d`;
+
+  return `${Math.floor(hrs / 24)}d`;
 };
 
 const getPresenceDotClass = (isOnline) =>
@@ -44,20 +47,21 @@ const getAvatarColor = (name) => {
     "bg-amber-500",
     "bg-teal-500",
   ];
+
   if (!name) return "bg-gray-500";
+
   let hash = 0;
-  for (let i = 0; i < name.length; i++) {
+  for (let i = 0; i < name.length; i += 1) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const index = Math.abs(hash) % colors.length;
-  return colors[index];
+
+  return colors[Math.abs(hash) % colors.length];
 };
 
 export default function Nember({
   projectId: propProjectId,
   projectParticipants = [],
 }) {
-  const navigate = useNavigate();
   const { projectId: paramProjectId } = useParams();
   const projectId = propProjectId || paramProjectId;
 
@@ -68,17 +72,21 @@ export default function Nember({
   const [selectedMember, setSelectedMember] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
-  // ─── PROFILE POPUP STATE ───────────────────────────────────
+  // ─── Profile popup state ───────────────────────────────────
   const [openProfilePopup, setOpenProfilePopup] = useState(false);
   const [profileMember, setProfileMember] = useState(null);
   const [profileEditField, setProfileEditField] = useState(null);
   const [profileFormValues, setProfileFormValues] = useState({});
   const [profileSaving, setProfileSaving] = useState(false);
 
-  // Dynamic admin check matching role-based permissions
   const currentUser = getUserFromToken();
   const currentRole = currentUser?.role?.toLowerCase() || "member";
-  const isAdmin = ["admin", "sadmin", "sr_project_manager", "hr_manager"].includes(currentRole);
+  const isAdmin = [
+    "admin",
+    "sadmin",
+    "sr_project_manager",
+    "hr_manager",
+  ].includes(currentRole);
 
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [openAddModal, setOpenAddModal] = useState(false);
@@ -86,9 +94,10 @@ export default function Nember({
   const [selectedUserToAdd, setSelectedUserToAdd] = useState("");
   const [addingMember, setAddingMember] = useState(false);
 
-  // Subscribe to logged in user doc to get dynamic childrenuid updates
+  // Subscribe to the logged-in user's document.
   useEffect(() => {
-    if (!currentUser?.email) return;
+    if (!currentUser?.email) return undefined;
+
     const sanitizedEmail = currentUser.email.replace(/\./g, "_");
     const unsubscribe = onSnapshot(
       doc(db, "users", sanitizedEmail),
@@ -98,32 +107,37 @@ export default function Nember({
         }
       }
     );
-    return () => unsubscribe();
+
+    return unsubscribe;
   }, [currentUser?.email]);
 
+  // Retained because the profile subscription may be used by role rules later.
   const hasChildren =
     Array.isArray(currentUserProfile?.childrenuid) &&
     currentUserProfile.childrenuid.length > 0;
+  void hasChildren;
+
   const canAddMember = isAdmin;
 
-  // ─── FETCH ALL USERS from Firestore ────────────────────────
+  // ─── Fetch all users from Firestore ────────────────────────
   useEffect(() => {
     const fetchAllUsers = async () => {
       setLoading(true);
+
       try {
         const querySnapshot = await getDocs(collection(db, "users"));
         const allUsers = [];
+
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
+
           allUsers.push({
             id: docSnap.id,
             uid: data.uid || "",
             name: data.name || "Unknown",
             email: data.email || docSnap.id.replace(/_/g, "."),
             role: data.role || "Member",
-            displayRole: data.role
-              ? data.role.replace(/_/g, " ")
-              : "Member",
+            displayRole: data.role ? data.role.replace(/_/g, " ") : "Member",
             mobile: data.mobile || data.phone || "N/A",
             phone: data.mobile || data.phone || "N/A",
             joined: data.createdAt
@@ -135,6 +149,7 @@ export default function Nember({
             lastSeenAt: data.lastSeenAt || null,
           });
         });
+
         setMembers(allUsers);
       } catch (err) {
         console.error("Error fetching all users:", err);
@@ -142,42 +157,47 @@ export default function Nember({
         setLoading(false);
       }
     };
+
     fetchAllUsers();
   }, []);
 
-  // Refresh available users list when the add modal opens
+  // Refresh available users when the add modal opens.
   useEffect(() => {
     if (!openAddModal) return;
+
     const fetchUsers = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, "users"));
         const allUsers = [];
+
         querySnapshot.forEach((docSnap) => {
           allUsers.push({ id: docSnap.id, ...docSnap.data() });
         });
-        const existingEmails = new Set(projectParticipants.map((p) => p.id));
-        const filtered = allUsers.filter((u) => !existingEmails.has(u.id));
+
+        const existingIds = new Set(projectParticipants.map((p) => p.id));
+        const filtered = allUsers.filter((user) => !existingIds.has(user.id));
+
         setAvailableUsers(filtered);
-        if (filtered.length > 0) {
-          setSelectedUserToAdd(filtered[0].id);
-        } else {
-          setSelectedUserToAdd("");
-        }
+        setSelectedUserToAdd(filtered[0]?.id || "");
       } catch (err) {
         console.error("Error fetching users:", err);
       }
     };
+
     fetchUsers();
   }, [openAddModal, projectParticipants]);
 
-  const handleAddMemberSubmit = async (e) => {
-    e.preventDefault();
+  const handleAddMemberSubmit = async (event) => {
+    event.preventDefault();
     if (!selectedUserToAdd) return;
+
     setAddingMember(true);
+
     try {
       const selectedUser = availableUsers.find(
-        (u) => u.id === selectedUserToAdd
+        (user) => user.id === selectedUserToAdd
       );
+
       if (!selectedUser) throw new Error("Selected user not found");
 
       const newParticipant = {
@@ -189,8 +209,10 @@ export default function Nember({
       };
 
       const updatedDetails = [...projectParticipants, newParticipant];
-      const updatedTeam = updatedDetails.map((p) => p.name);
-      const updatedParticipants = updatedDetails.map((p) => p.id);
+      const updatedTeam = updatedDetails.map((participant) => participant.name);
+      const updatedParticipants = updatedDetails.map(
+        (participant) => participant.id
+      );
 
       await updateDoc(doc(db, "projects", projectId), {
         participants: updatedParticipants,
@@ -205,13 +227,13 @@ export default function Nember({
       setOpenAddModal(false);
     } catch (err) {
       console.error("Error adding member:", err);
-      alert("Failed to add member: " + err.message);
+      alert(`Failed to add member: ${err.message}`);
     } finally {
       setAddingMember(false);
     }
   };
 
-  // ─── PROFILE POPUP HANDLERS ────────────────────────────────
+  // ─── Profile popup handlers ────────────────────────────────
   const openProfileView = (member) => {
     setProfileMember(member);
     setProfileEditField(null);
@@ -228,8 +250,9 @@ export default function Nember({
 
   const handleProfileEdit = (field) => {
     if (!isAdmin) return;
-    setProfileFormValues((prev) => ({
-      ...prev,
+
+    setProfileFormValues((previous) => ({
+      ...previous,
       [field]: profileMember[field] || "",
     }));
     setProfileEditField(field);
@@ -244,20 +267,15 @@ export default function Nember({
     if (!isAdmin || !profileMember?.id) return;
 
     setProfileSaving(true);
-    try {
-      const docRef = doc(db, "users", profileMember.id);
-      await updateDoc(docRef, { [field]: profileFormValues[field] });
 
-      // Update both the profile popup state and the members list
-      setProfileMember((prev) => ({
-        ...prev,
-        [field]: profileFormValues[field],
-      }));
-      setMembers((prev) =>
-        prev.map((m) =>
-          m.id === profileMember.id
-            ? { ...m, [field]: profileFormValues[field] }
-            : m
+    try {
+      const value = profileFormValues[field];
+      await updateDoc(doc(db, "users", profileMember.id), { [field]: value });
+
+      setProfileMember((previous) => ({ ...previous, [field]: value }));
+      setMembers((previous) =>
+        previous.map((member) =>
+          member.id === profileMember.id ? { ...member, [field]: value } : member
         )
       );
 
@@ -271,52 +289,53 @@ export default function Nember({
     }
   };
 
-  // ─── PROFILE POPUP RENDER FIELD ────────────────────────────
   const renderProfileField = (label, field, value, type = "text") => {
     const isEditing = profileEditField === field;
 
     return (
       <div>
-        <p className="font-semibold text-gray-700 text-sm mb-1">{label}</p>
+        <p className="mb-1 text-sm font-semibold text-gray-700">{label}</p>
+
         {isEditing ? (
           <div className="flex items-center gap-2">
             <input
               type={type}
               value={profileFormValues[field] || ""}
-              onChange={(e) =>
-                setProfileFormValues((prev) => ({
-                  ...prev,
-                  [field]: e.target.value,
+              onChange={(event) =>
+                setProfileFormValues((previous) => ({
+                  ...previous,
+                  [field]: event.target.value,
                 }))
               }
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
               autoFocus
               disabled={profileSaving}
             />
             <button
+              type="button"
               onClick={() => handleProfileSave(field)}
               disabled={profileSaving}
-              className="text-green-600 text-sm font-medium hover:underline disabled:opacity-50"
+              className="text-sm font-medium text-green-600 hover:underline disabled:opacity-50"
             >
               {profileSaving ? "…" : "✓"}
             </button>
             <button
+              type="button"
               onClick={handleProfileCancel}
               disabled={profileSaving}
-              className="text-red-500 text-sm hover:underline disabled:opacity-50"
+              className="text-sm text-red-500 hover:underline disabled:opacity-50"
             >
               ✕
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-1">
-            <span className="text-gray-500 text-sm">
-              {value || "—"}
-            </span>
+            <span className="text-sm text-gray-500">{value || "—"}</span>
             {isAdmin && (
               <button
+                type="button"
                 onClick={() => handleProfileEdit(field)}
-                className="text-blue-500 text-xs hover:underline ml-1"
+                className="ml-1 text-xs text-blue-500 hover:underline"
                 title="Edit"
               >
                 ✎
@@ -328,29 +347,29 @@ export default function Nember({
     );
   };
 
-  // Tick every minute so "last seen" labels stay fresh
+  // Keep last-seen labels fresh.
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNowTick(Date.now());
-    }, 60000);
+    const timer = setInterval(() => setNowTick(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  // close dropdown when click outside current menu/button
+  // Close the member menu when clicking outside it.
   useEffect(() => {
-    const onDocClick = (e) => {
+    const onDocumentClick = (event) => {
       if (openMenuIndex === null) return;
-      const insideDropdown = e.target.closest(
+
+      const insideDropdown = event.target.closest(
         `[data-dropdown-index="${openMenuIndex}"]`
       );
-      const insideButton = e.target.closest(
+      const insideButton = event.target.closest(
         `[data-menu-button-index="${openMenuIndex}"]`
       );
-      if (insideDropdown || insideButton) return;
-      setOpenMenuIndex(null);
+
+      if (!insideDropdown && !insideButton) setOpenMenuIndex(null);
     };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => document.removeEventListener("mousedown", onDocumentClick);
   }, [openMenuIndex]);
 
   const openEdit = (member) => {
@@ -362,10 +381,13 @@ export default function Nember({
   const deleteMember = async (email) => {
     try {
       const updatedDetails = projectParticipants.filter(
-        (p) => p.id !== email && p.email !== email
+        (participant) =>
+          participant.id !== email && participant.email !== email
       );
-      const updatedTeam = updatedDetails.map((p) => p.name);
-      const updatedParticipants = updatedDetails.map((p) => p.id);
+      const updatedTeam = updatedDetails.map((participant) => participant.name);
+      const updatedParticipants = updatedDetails.map(
+        (participant) => participant.id
+      );
 
       await updateDoc(doc(db, "projects", projectId), {
         participants: updatedParticipants,
@@ -378,29 +400,25 @@ export default function Nember({
         projectIds: arrayRemove(projectId),
       });
 
-      setMembers((prev) => prev.filter((m) => m.email !== email));
+      setMembers((previous) =>
+        previous.filter((member) => member.email !== email)
+      );
       setOpenMenuIndex(null);
+
       if (selectedMember?.email === email) {
         setOpenEditModal(false);
         setSelectedMember(null);
       }
     } catch (err) {
       console.error("Error removing member from project:", err);
-      alert("Failed to remove member: " + err.message);
+      alert(`Failed to remove member: ${err.message}`);
     }
   };
 
-  // Filter members if we are viewing a specific project
-  const displayMembers = projectId
-    ? members.filter((member) =>
-        projectParticipants.some((p) => p.id === member.id)
-      )
-    : members;
-
   if (loading) {
     return (
-      <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
-        <div className="flex justify-center items-center h-64">
+      <div className="flex flex-col rounded-2xl bg-gray-100 p-6">
+        <div className="flex h-64 items-center justify-center">
           <p className="text-gray-500">Loading all users...</p>
         </div>
       </div>
@@ -409,33 +427,42 @@ export default function Nember({
 
   return (
     <>
-      <div className="bg-gray-100 flex flex-col rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col rounded-2xl bg-gray-100 p-6">
+        <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">
-            {projectId ? "Project Members" : "All Users"}{" "}
+            All Users{" "}
             <span className="text-sm font-normal text-gray-500">
-              ({displayMembers.length} total)
+              ({members.length} total)
             </span>
           </h2>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {displayMembers.map((member, index) => (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          {members.map((member, index) => (
             <div
               key={member.id || member.email}
-              className="bg-white rounded-2xl text-center py-11 pb-0 relative flex flex-col items-center justify-between gap-2 h-72"
+              className="relative flex h-72 flex-col items-center justify-between gap-2 rounded-2xl bg-white py-11 pb-0 text-center"
             >
               <div className="relative inline-flex">
-                <div className={`w-20 h-20 rounded-full ${getAvatarColor(member.name)} text-white flex items-center justify-center text-3xl font-bold uppercase select-none shadow-sm`}>
-                  {member.name ? member.name.charAt(0) : "?"}
+                <div
+                  className={`flex h-20 w-20 select-none items-center justify-center rounded-full ${getAvatarColor(
+                    member.name
+                  )} text-3xl font-bold uppercase text-white shadow-sm`}
+                  role="img"
+                  aria-label={`${member.name || "Unknown"} profile`}
+                >
+                  {member.name?.trim().charAt(0) || "?"}
                 </div>
+
                 {member.isOnline ? (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(true)}`}
+                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(
+                      true
+                    )}`}
                   />
                 ) : (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white text-[10px] font-semibold leading-none flex items-center justify-center ${getPresenceBadgeClass(false)}`}
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold leading-none ring-2 ring-white ${getPresenceBadgeClass()}`}
                   >
                     {getPresenceBadgeLabel(member, nowTick)}
                   </span>
@@ -444,29 +471,30 @@ export default function Nember({
 
               <h3 className="text-md font-bold text-gray-800">{member.name}</h3>
               <p className="text-xs text-gray-500">{member.displayRole}</p>
-              <p className="text-xs text-gray-500 pb-12">
+              <p className="pb-12 text-xs text-gray-500">
                 {member.designation || member.email}
               </p>
 
-              {/* VIEW PROFILE BUTTON — now opens popup instead of navigating */}
               <button
-                className="bg-blue-500 text-white w-full text-xs py-3 px-3 rounded-b-2xl hover:bg-blue-600"
+                type="button"
+                className="w-full rounded-b-2xl bg-blue-500 px-3 py-3 text-xs text-white hover:bg-blue-600"
                 onClick={() => openProfileView(member)}
               >
                 View Profile
               </button>
 
               {isAdmin && (
-                <div className="absolute top-2 right-2">
+                <div className="absolute right-2 top-2">
                   <button
+                    type="button"
                     onClick={() =>
-                      setOpenMenuIndex((cur) =>
-                        cur === index ? null : index
+                      setOpenMenuIndex((current) =>
+                        current === index ? null : index
                       )
                     }
                     data-menu-button-index={index}
                     className="text-gray-400 hover:text-gray-500"
-                    aria-label="open menu"
+                    aria-label="Open member menu"
                   >
                     •••
                   </button>
@@ -474,26 +502,23 @@ export default function Nember({
                   {openMenuIndex === index && (
                     <div
                       data-dropdown-index={index}
-                      className="absolute right-0 mt-3 w-28 bg-white border border-[#DDD9D9] shadow-xl rounded-2xl z-50 overflow-hidden"
+                      className="absolute right-0 z-50 mt-3 w-28 overflow-hidden rounded-2xl border border-[#DDD9D9] bg-white shadow-xl"
                     >
                       <button
+                        type="button"
                         onClick={() => openEdit(member)}
-                        className="w-full text-center py-2 text-black hover:bg-gray-50"
+                        className="w-full py-2 text-center text-black hover:bg-gray-50"
                       >
                         Edit
                       </button>
-
-                      {projectId && (
-                        <>
-                          <div className="border-t border-[#DDD9D9]" />
-                          <button
-                            onClick={() => deleteMember(member.email)}
-                            className="w-full text-center py-2 text-red-600 hover:bg-red-50"
-                          >
-                            Remove from Project
-                          </button>
-                        </>
-                      )}
+                      <div className="border-t border-[#DDD9D9]" />
+                      <button
+                        type="button"
+                        onClick={() => deleteMember(member.email)}
+                        className="w-full py-2 text-center text-red-600 hover:bg-red-50"
+                      >
+                        Remove from Project
+                      </button>
                     </div>
                   )}
                 </div>
@@ -504,12 +529,19 @@ export default function Nember({
           {canAddMember && (
             <div
               onClick={() => setOpenAddModal(true)}
-              className="bg-[#f7fdff] rounded-xl text-center py-4 px-3 flex flex-col items-center justify-center h-56 cursor-pointer hover:bg-[#edf9fc] transition-all"
+              className="flex h-56 cursor-pointer flex-col items-center justify-center rounded-xl bg-[#f7fdff] px-3 py-4 text-center transition-all hover:bg-[#edf9fc]"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  setOpenAddModal(true);
+                }
+              }}
             >
-              <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center text-blue-500 border-2 border-dashed border-blue-300">
-                <Plus className="w-5 h-5" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-blue-300 bg-white text-blue-500">
+                <Plus className="h-5 w-5" />
               </div>
-              <p className="text-sm text-blue-500 font-medium mt-2">
+              <p className="mt-2 text-sm font-medium text-blue-500">
                 Add to Project
               </p>
             </div>
@@ -517,38 +549,47 @@ export default function Nember({
         </div>
       </div>
 
-      {/* ─── PROFILE POPUP MODAL ─────────────────────────────── */}
+      {/* ─── Profile popup modal ─────────────────────────────── */}
       {openProfilePopup && profileMember && (
-        <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-[90%] md:w-[500px] p-6 relative shadow-2xl">
-            {/* Close button */}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="relative w-[90%] rounded-3xl bg-white p-6 shadow-2xl md:w-[500px]">
             <button
+              type="button"
               onClick={closeProfilePopup}
-              className="absolute top-4 right-4 text-gray-500 hover:text-black"
+              className="absolute right-4 top-4 text-gray-500 hover:text-black"
+              aria-label="Close profile"
             >
               <X size={22} />
             </button>
 
-            {/* Avatar + Name header */}
-            <div className="flex items-center gap-4 pb-6 border-b border-gray-100">
+            <div className="flex items-center gap-4 border-b border-gray-100 pb-6">
               <div className="relative inline-flex">
-                <img
-                  src={`https://i.pravatar.cc/150?img=${profileMember.img}`}
-                  className="w-20 h-20 rounded-full"
-                  alt="profile"
-                />
+                {/* Updated profile avatar: initial instead of remote image. */}
+                <div
+                  className={`flex h-20 w-20 select-none items-center justify-center rounded-full ${getAvatarColor(
+                    profileMember.name
+                  )} text-3xl font-bold uppercase text-white shadow-sm`}
+                  role="img"
+                  aria-label={`${profileMember.name || "Unknown"} profile`}
+                >
+                  {profileMember.name?.trim().charAt(0) || "?"}
+                </div>
+
                 {profileMember.isOnline ? (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(true)}`}
+                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(
+                      true
+                    )}`}
                   />
                 ) : (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white text-[8px] font-semibold leading-none flex items-center justify-center ${getPresenceBadgeClass(false)}`}
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold leading-none ring-2 ring-white ${getPresenceBadgeClass()}`}
                   >
                     {getPresenceBadgeLabel(profileMember, nowTick)}
                   </span>
                 )}
               </div>
+
               <div>
                 <h2 className="text-xl font-semibold text-gray-800">
                   {profileMember.name}
@@ -557,14 +598,13 @@ export default function Nember({
                   {profileMember.displayRole}
                 </p>
                 {isAdmin && (
-                  <span className="text-xs text-purple-600 font-medium">
+                  <span className="text-xs font-medium text-purple-600">
                     🛡️ Admin — click ✎ to edit
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Profile Fields */}
             <div className="grid grid-cols-2 gap-5 pt-5 text-sm">
               {renderProfileField("Full Name", "name", profileMember.name)}
               {renderProfileField(
@@ -590,27 +630,29 @@ export default function Nember({
                 "designation",
                 profileMember.designation
               )}
+
               <div>
-                <p className="font-semibold text-gray-700 text-sm mb-1">Role</p>
-                <span className="text-gray-500 text-sm">
+                <p className="mb-1 text-sm font-semibold text-gray-700">Role</p>
+                <span className="text-sm text-gray-500">
                   {profileMember.displayRole}
                 </span>
               </div>
+
               <div>
-                <p className="font-semibold text-gray-700 text-sm mb-1">
+                <p className="mb-1 text-sm font-semibold text-gray-700">
                   Date Joined
                 </p>
-                <span className="text-gray-500 text-sm">
+                <span className="text-sm text-gray-500">
                   {profileMember.joined}
                 </span>
               </div>
             </div>
 
-            {/* Close button at bottom */}
-            <div className="flex justify-end mt-6 pt-4 border-t border-gray-100">
+            <div className="mt-6 flex justify-end border-t border-gray-100 pt-4">
               <button
+                type="button"
                 onClick={closeProfilePopup}
-                className="px-6 py-2 bg-gray-100 rounded-full text-sm text-gray-700 hover:bg-gray-200"
+                className="rounded-full bg-gray-100 px-6 py-2 text-sm text-gray-700 hover:bg-gray-200"
               >
                 Close
               </button>
@@ -619,13 +661,15 @@ export default function Nember({
         </div>
       )}
 
-      {/* ─── OLD EDIT MODAL (kept for backward compat) ──────── */}
+      {/* ─── Old edit modal (kept for backward compatibility) ─ */}
       {openEditModal && selectedMember && (
-        <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-[90%] md:w-[550px] p-6 relative shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="relative w-[90%] rounded-3xl bg-white p-6 shadow-2xl md:w-[550px]">
             <button
+              type="button"
               onClick={() => setOpenEditModal(false)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-black"
+              className="absolute right-4 top-4 text-gray-500 hover:text-black"
+              aria-label="Close edit modal"
             >
               <X size={22} />
             </button>
@@ -634,25 +678,27 @@ export default function Nember({
               <div className="relative inline-flex">
                 <img
                   src={`https://i.pravatar.cc/150?img=${selectedMember.img}`}
-                  className="w-16 h-16 rounded-full"
-                  alt="profile"
+                  className="h-16 w-16 rounded-full"
+                  alt={`${selectedMember.name || "Member"} profile`}
                 />
+
                 {selectedMember.isOnline ? (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(true)}`}
+                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white ${getPresenceDotClass(
+                      true
+                    )}`}
                   />
                 ) : (
                   <span
-                    className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full ring-2 ring-white text-[7px] font-semibold leading-none flex items-center justify-center ${getPresenceBadgeClass(false)}`}
+                    className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[7px] font-semibold leading-none ring-2 ring-white ${getPresenceBadgeClass()}`}
                   >
                     {getPresenceBadgeLabel(selectedMember, nowTick)}
                   </span>
                 )}
               </div>
+
               <div>
-                <h2 className="text-xl font-semibold">
-                  {selectedMember.name}
-                </h2>
+                <h2 className="text-xl font-semibold">{selectedMember.name}</h2>
                 <p className="text-sm text-gray-500">
                   {selectedMember.displayRole}
                 </p>
@@ -684,14 +730,12 @@ export default function Nember({
 
               <div className="col-span-2">
                 <p className="font-semibold">Roles</p>
-                <div className="flex items-center gap-3 mt-1">
+                <div className="mt-1 flex items-center gap-3">
                   <label className="flex items-center gap-1">
                     <input
                       type="radio"
                       name={`role-${selectedMember.email}`}
-                      defaultChecked={
-                        selectedMember.displayRole === "Admin"
-                      }
+                      defaultChecked={selectedMember.displayRole === "Admin"}
                     />
                     Admin
                   </label>
@@ -699,9 +743,7 @@ export default function Nember({
                     <input
                       type="radio"
                       name={`role-${selectedMember.email}`}
-                      defaultChecked={
-                        selectedMember.displayRole === "Employee"
-                      }
+                      defaultChecked={selectedMember.displayRole === "Employee"}
                     />
                     Employee
                   </label>
@@ -709,13 +751,17 @@ export default function Nember({
               </div>
             </div>
 
-            <div className="flex justify-between mt-8">
-              <button className="px-6 py-2 rounded-full border border-red-400 text-red-500 hover:bg-red-50">
+            <div className="mt-8 flex justify-between">
+              <button
+                type="button"
+                className="rounded-full border border-red-400 px-6 py-2 text-red-500 hover:bg-red-50"
+              >
                 Restrict
               </button>
               <button
+                type="button"
                 onClick={() => setOpenEditModal(false)}
-                className="px-6 py-2 bg-red-500 rounded-full text-white hover:bg-red-600"
+                className="rounded-full bg-red-500 px-6 py-2 text-white hover:bg-red-600"
               >
                 Dismiss
               </button>
@@ -724,28 +770,34 @@ export default function Nember({
         </div>
       )}
 
+      {/* ─── Add member modal ────────────────────────────────── */}
       {openAddModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-[90%] md:w-[450px] p-6 relative shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="relative w-[90%] rounded-3xl bg-white p-6 shadow-2xl md:w-[450px]">
             <button
+              type="button"
               onClick={() => setOpenAddModal(false)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-black"
+              className="absolute right-4 top-4 text-gray-500 hover:text-black"
+              aria-label="Close add member modal"
             >
               <X size={22} />
             </button>
-            <h2 className="text-xl font-semibold mb-4">
-              Add Project Member
-            </h2>
+
+            <h2 className="mb-4 text-xl font-semibold">Add Project Member</h2>
+
             <form onSubmit={handleAddMemberSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="mb-1 block text-sm font-medium text-gray-700">
                   Select Employee
                 </label>
+
                 {availableUsers.length > 0 ? (
                   <select
                     value={selectedUserToAdd}
-                    onChange={(e) => setSelectedUserToAdd(e.target.value)}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={(event) =>
+                      setSelectedUserToAdd(event.target.value)
+                    }
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     {availableUsers.map((user) => (
                       <option key={user.id} value={user.id}>
@@ -759,18 +811,19 @@ export default function Nember({
                   </p>
                 )}
               </div>
+
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setOpenAddModal(false)}
-                  className="px-5 py-2 rounded-full border border-gray-300 text-sm hover:bg-gray-50"
+                  className="rounded-full border border-gray-300 px-5 py-2 text-sm hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={addingMember || !selectedUserToAdd}
-                  className="px-5 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-full bg-blue-600 px-5 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {addingMember ? "Adding..." : "Add Member"}
                 </button>
