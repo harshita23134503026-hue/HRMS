@@ -23,14 +23,6 @@ const LegendDot = ({ bg, label }) => (
   </div>
 );
 
-const PALETTE = [
-  { backgroundColor: '#dbeafe', borderColor: '#93c5fd', textColor: '#1e40af' },
-  { backgroundColor: '#dcfce7', borderColor: '#86efac', textColor: '#14532d' },
-  { backgroundColor: '#fef9c3', borderColor: '#fde047', textColor: '#713f12' },
-  { backgroundColor: '#fee2e2', borderColor: '#fca5a5', textColor: '#7f1d1d' },
-  { backgroundColor: '#ede9fe', borderColor: '#c4b5fd', textColor: '#4c1d95' },
-];
-
 const LEAVE_CARDS = [
   { key: 'plannedLeave', label: 'Planned Leave', defaultTotal: 3, consumed: 0 },
   { key: 'sickLeave', label: 'Sick Leave', defaultTotal: 3, consumed: 0, accent: true },
@@ -75,16 +67,37 @@ const getMemberName = (member = {}) => member.name || member.fullName || member.
 const getRequestStatus = (request = {}) => String(request.status ?? request.leave_status ?? request.requestStatus ?? request.approvalStatus ?? '').trim().toLowerCase();
 const isPendingRequest = (request = {}) => getRequestStatus(request) === 'pending';
 
+// "2026-08-20T22:57:43+05:30" -> "10:57:43 pm"
+const formatSessionTime = (iso = '') => {
+  if (!iso) return '—';
+  const match = String(iso).match(/T(\d{2}:\d{2}:\d{2})/);
+  if (!match) return String(iso);
+  const [hours, minutes, seconds] = match[1].split(':').map(Number);
+  const period = hours >= 12 ? 'pm' : 'am';
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} ${period}`;
+};
+
+// "2026-08-20" -> "20 Aug 2026"
+const formatDisplayDate = (dateStr = '') => {
+  if (!dateStr) return '';
+  const [year, month, day] = String(dateStr).split('-');
+  if (!year || !month || !day) return String(dateStr);
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${parseInt(day, 10)} ${MONTHS[parseInt(month, 10) - 1]} ${year}`;
+};
+
+const getTodayStr = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 export default function Calender() {
   const calRef = useRef(null);
   const currentUser = getUserFromToken();
   const currentUserEmail = currentUser?.email?.toLowerCase() || '';
   const currentUserEncodedEmail = encodeEmail(currentUserEmail);
 
-  const [events, setEvents] = useState([]);
-  const [showModal, setShowModal] = useState(false);
-  const [newDate, setNewDate] = useState('');
-  const [newTitle, setNewTitle] = useState('');
   const [legendOpen, setLegendOpen] = useState(true);
   const [swipesOpen, setSwipesOpen] = useState(true);
   const [sideOpen, setSideOpen] = useState(false);
@@ -99,16 +112,24 @@ export default function Calender() {
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(getTodayStr());
+  const [attendanceByDate, setAttendanceByDate] = useState({});
 
   const normalizedRole = String(currentUserRole || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const canManageHolidays = true;
   const canManageLeaveBalances = ['admin', 'hr manager'].includes(normalizedRole);
   const selectedMemberId = selectedMember?.id || currentUserEncodedEmail;
   const selectedMemberName = selectedMember ? getMemberName(selectedMember) : (currentUser?.name || currentUserEmail);
+  const selectedSwipe = selectedDate ? attendanceByDate[selectedDate] : null;
 
   useEffect(() => {
-    const timer = setTimeout(() => calRef.current?.getApi().updateSize(), 250);
+    const api = calRef.current?.getApi();
+    const timer = setTimeout(() => {
+      api?.updateSize();
+      if (api) api.select(selectedDate);
+    }, 250);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Read the signed-in user's role from users/{email_with_dots_replaced_by_underscores}.
@@ -233,23 +254,108 @@ export default function Calender() {
     );
   }, [canManageLeaveBalances]);
 
-  const handleDateClick = (arg) => {
-    setNewDate(arg.dateStr);
-    setNewTitle('');
-    setShowModal(true);
-  };
+  // Swipes: users/{email} -> attendanceIds -> attendance/{id}.dates -> { date: { first_join_time, last_leave_time } }.
+  useEffect(() => {
+    if (!currentUserEncodedEmail) {
+      setAttendanceByDate({});
+      return undefined;
+    }
 
-  const handleEventDrop = (info) => {
-    setEvents((previous) => previous.map((event) => (
-      event.id === info.event.id ? { ...event, date: info.event.startStr } : event
-    )));
-  };
+    const attendanceData = new Map(); // attendanceId -> { dateKey: { first_join_time, last_leave_time } }
+    let attendanceUnsubs = [];
+    let disposed = false;
 
-  const handleAdd = () => {
-    if (!newTitle.trim()) return;
-    const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    setEvents((previous) => [...previous, { id: String(Date.now()), title: newTitle.trim(), date: newDate, ...color }]);
-    setShowModal(false);
+    const recompute = () => {
+      const merged = {};
+      attendanceData.forEach((byDate) => {
+        Object.entries(byDate).forEach(([dateKey, dayData]) => {
+          merged[dateKey] = dayData;
+        });
+      });
+      setAttendanceByDate(merged);
+    };
+
+    // 1) Watch the user's document to get attendanceIds.
+    const userUnsub = onSnapshot(
+      doc(db, 'users', currentUserEncodedEmail),
+      (userSnapshot) => {
+        attendanceUnsubs.forEach((unsub) => unsub());
+        attendanceUnsubs = [];
+        attendanceData.clear();
+
+        if (!userSnapshot.exists()) {
+          setAttendanceByDate({});
+          return;
+        }
+
+        const rawIds = userSnapshot.data().attendanceIds;
+        let attendanceIds = [];
+        if (Array.isArray(rawIds)) {
+          attendanceIds = rawIds;
+        } else if (rawIds && typeof rawIds === 'object') {
+          // attendanceIds stored as a map (e.g. { "851708656902471691": true })
+          attendanceIds = Object.keys(rawIds);
+        } else if (rawIds) {
+          // single id
+          attendanceIds = [rawIds];
+        }
+        // Firestore may return these as numbers (int64) — always coerce to string,
+        // since these snowflake-style ids exceed JS safe integer precision.
+        attendanceIds = attendanceIds.map((id) => String(id).trim()).filter(Boolean);
+
+        if (attendanceIds.length === 0) {
+          console.warn('No attendanceIds found on user document:', userSnapshot.data());
+          setAttendanceByDate({});
+          return;
+        }
+
+        // 2) Watch each attendance document and map dates -> { first_join_time, last_leave_time }.
+        attendanceUnsubs = attendanceIds.map((attendanceId) =>
+          onSnapshot(
+            doc(db, 'attendance', attendanceId),
+            (attendanceSnapshot) => {
+              if (disposed) return;
+              if (!attendanceSnapshot.exists()) {
+                attendanceData.delete(attendanceId);
+              } else {
+                const dates = attendanceSnapshot.data().dates || {};
+                console.log(`[Swipes] attendance/${attendanceId} dates:`, dates);
+                const byDate = {};
+                Object.entries(dates).forEach(([dateKey, day]) => {
+                  if (day && (day.first_join_time || day.last_leave_time)) {
+                    byDate[dateKey] = {
+                      first_join_time: day.first_join_time || '',
+                      last_leave_time: day.last_leave_time || '',
+                    };
+                  }
+                });
+                attendanceData.set(attendanceId, byDate);
+              }
+              recompute();
+            },
+            (error) => {
+              console.error('Unable to load attendance document:', error);
+              attendanceData.delete(attendanceId);
+              recompute();
+            }
+          )
+        );
+      },
+      (error) => {
+        console.error('Unable to load user attendance ids:', error);
+        setAttendanceByDate({});
+      }
+    );
+
+    return () => {
+      disposed = true;
+      userUnsub();
+      attendanceUnsubs.forEach((unsub) => unsub());
+    };
+  }, [currentUserEncodedEmail]);
+
+  const handleDateSelect = (info) => {
+    setSelectedDate(info.startStr);
   };
 
   const openHolidayEditor = (holiday = null, index = null) => {
@@ -300,14 +406,11 @@ export default function Calender() {
         .fc-daygrid-day-number { font-size: 11px !important; color: #94a3b8 !important; padding: 4px 6px !important; text-decoration: none !important; }
         .fc-daygrid-day.fc-day-today { background: #f0f9ff !important; }
         .fc-daygrid-day.fc-day-today .fc-daygrid-day-number { background: #2563eb !important; color: #fff !important; border-radius: 50% !important; width: 22px !important; height: 22px !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 10px !important; font-weight: 700 !important; }
-        .fc-event { border-radius: 5px !important; padding: 1px 5px !important; font-size: 10px !important; font-weight: 500 !important; cursor: grab !important; }
-        .fc-event:active { cursor: grabbing !important; }
-        .fc-event-title { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+        .fc-highlight { background: #dbeafe !important; }
         .fc-scrollgrid { border: none !important; }
         .fc-scrollgrid td, .fc-scrollgrid th { border-color: #f1f5f9 !important; }
         .fc-daygrid-day-frame { min-height: 72px !important; }
         .fc-toolbar.fc-header-toolbar { margin-bottom: 12px !important; }
-        .fc-more-link { font-size: 10px !important; color: #2563eb !important; font-weight: 600 !important; text-decoration: none !important; }
       `}</style>
 
       <div className="min-h-screen w-full bg-slate-100 p-3 sm:p-4 lg:p-5">
@@ -324,7 +427,7 @@ export default function Calender() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Schedule</span>
                 <button onClick={() => calRef.current?.getApi().today()} className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600 transition-colors hover:bg-blue-100">Today</button>
               </div>
-              <FullCalendar ref={calRef} plugins={[dayGridPlugin, interactionPlugin]} initialView="dayGridMonth" editable dateClick={handleDateClick} eventDrop={handleEventDrop} events={events} height="auto" handleWindowResize dayMaxEvents={3} headerToolbar={{ left: 'prev', center: 'title', right: 'next' }} />
+              <FullCalendar ref={calRef} plugins={[dayGridPlugin, interactionPlugin]} initialView="dayGridMonth" selectable select={handleDateSelect} unselectAuto={false} height="auto" handleWindowResize headerToolbar={{ left: 'prev', center: 'title', right: 'next' }} />
             </div>
 
             <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -337,7 +440,33 @@ export default function Calender() {
 
             <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
               <button className="flex w-full items-center justify-between" onClick={() => setSwipesOpen((open) => !open)}><span className="text-sm font-semibold text-slate-800">Swipes</span><span className={`text-slate-400 transition-transform ${swipesOpen ? 'rotate-180' : ''}`}>⌄</span></button>
-              {swipesOpen && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[320px] text-xs"><thead><tr className="border-b border-slate-100"><th className="pb-2 pr-4 text-left text-[11px] font-medium text-slate-400">Swipe Time</th><th className="pb-2 pr-4 text-left text-[11px] font-medium text-slate-400">Location</th><th className="pb-2 text-left text-[11px] font-medium text-slate-400">Info</th></tr></thead><tbody><tr><td className="py-3 pr-4"><p className="text-xs font-semibold text-slate-800">10:00:41 am</p><p className="mt-0.5 text-[10px] text-slate-400">16 Apr 2026</p></td><td className="py-3 pr-4 text-xs text-slate-500">JJA1240500316</td><td className="py-3 text-xs font-semibold text-blue-500">Info</td></tr></tbody></table></div>}
+              {swipesOpen && (
+                <div className="mt-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-slate-500">{selectedDate ? formatDisplayDate(selectedDate) : 'Select a date'}</span>
+                    <span className="text-[10px] text-slate-400">Click a date on the calendar</span>
+                  </div>
+                  {!selectedSwipe ? (
+                    <div className="rounded-xl bg-slate-50 px-3 py-5 text-center">
+                      <p className="text-[11px] font-medium text-slate-400">No swipes recorded for this date</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-slate-400">First Join</span>
+                          <span className="text-[13px] font-bold text-emerald-600">{formatSessionTime(selectedSwipe.first_join_time)}</span>
+                        </div>
+                        <span className="text-slate-300">→</span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="text-[10px] text-slate-400">Last Leave</span>
+                          <span className="text-[13px] font-bold text-red-500">{formatSessionTime(selectedSwipe.last_leave_time)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -367,8 +496,6 @@ export default function Calender() {
           </aside>
         </div>
       </div>
-
-      {showModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={(event) => event.target === event.currentTarget && setShowModal(false)}><div className="w-full max-w-sm rounded-2xl border border-slate-100 bg-white p-6 shadow-xl"><div className="mb-1 flex items-start justify-between"><h3 className="text-[15px] font-bold text-slate-800">Add Event</h3><button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">✕</button></div><p className="mb-4 text-[11px] text-slate-400">📅 {newDate}</p><input className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-blue-400" placeholder="Event title…" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && handleAdd()} autoFocus /><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowModal(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-[12px] font-semibold text-slate-500">Cancel</button><button onClick={handleAdd} className="rounded-xl bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white">Add Event</button></div></div></div>}
 
       {holidayModalOpen && canManageHolidays && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={(event) => event.target === event.currentTarget && closeHolidayEditor()}><div className="w-full max-w-sm rounded-2xl border border-slate-100 bg-white p-6 shadow-xl"><div className="mb-1 flex items-start justify-between"><h3 className="text-[15px] font-bold text-slate-800">{editingHolidayIndex === null ? 'Add Holiday' : 'Edit Holiday'}</h3><button onClick={closeHolidayEditor} className="text-slate-400 hover:text-slate-600">✕</button></div><p className="mb-4 text-[11px] text-slate-400">Use a single date or a date range for the holiday entry.</p><div className="space-y-3"><input className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-blue-400" placeholder="Holiday name" value={holidayDraft.name} onChange={(event) => setHolidayDraft((old) => ({ ...old, name: event.target.value }))} autoFocus /><input className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-blue-400" placeholder="Start date (YYYY-MM-DD)" value={holidayDraft.startDate} onChange={(event) => setHolidayDraft((old) => ({ ...old, startDate: event.target.value }))} /><input className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-blue-400" placeholder="End date (YYYY-MM-DD)" value={holidayDraft.endDate} onChange={(event) => setHolidayDraft((old) => ({ ...old, endDate: event.target.value }))} /><input className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-blue-400" placeholder="Display label (optional)" value={holidayDraft.dateLabel} onChange={(event) => setHolidayDraft((old) => ({ ...old, dateLabel: event.target.value }))} onKeyDown={(event) => event.key === 'Enter' && saveHoliday()} /></div><div className="mt-4 flex justify-end gap-2"><button onClick={closeHolidayEditor} className="rounded-xl border border-slate-200 px-4 py-2 text-[12px] font-semibold text-slate-500">Cancel</button><button onClick={saveHoliday} className="rounded-xl bg-blue-600 px-4 py-2 text-[12px] font-semibold text-white">Save Holiday</button></div></div></div>}
 
