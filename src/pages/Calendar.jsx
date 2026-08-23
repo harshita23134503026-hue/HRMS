@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, ChevronDown, ChevronUp, Pencil, Settings2, Upload, UserRound } from 'lucide-react';
 import { arrayUnion, collection, collectionGroup, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getUserFromToken, db } from '../firebase';
@@ -397,6 +397,7 @@ const CollapsibleSection = ({ title, icon, isOpen, onToggle, children, badge }) 
 );
 
 export default function Calender() {
+  const navigate = useNavigate();
   const calRef = useRef(null);
   const currentUser = getUserFromToken();
   const currentUserEmail = currentUser?.email?.toLowerCase() || '';
@@ -1032,6 +1033,18 @@ export default function Calender() {
       `}</style>
 
       <div className="min-h-screen w-full bg-slate-100 p-3 sm:p-4 lg:p-5">
+        {/* ── Admin Panel Button (Admin & HR Manager only) ──────────── */}
+        {canManageLeaveBalances && (
+          <button
+            type="button"
+            onClick={() => navigate('/ACalendar')}
+            className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-2.5 text-[12px] font-semibold text-white shadow-md shadow-sky-200/50 transition-all hover:shadow-lg hover:shadow-sky-300/50 hover:from-sky-600 hover:to-blue-700 active:scale-[0.99]"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Admin Panel
+          </button>
+        )}
+
         <div className="mb-3 flex justify-end lg:hidden">
           <button onClick={() => setSideOpen((open) => !open)} className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-600">
             {sideOpen ? 'Hide Panel' : 'Leave & Holidays'}

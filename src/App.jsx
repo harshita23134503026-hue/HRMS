@@ -20,6 +20,7 @@ import Team from "./pages/Team";
 import LeaveBalanceEditorModal from "./pages/LeaveBalanceEditorModal";
 import Settings  from "./pages/Settings";
 import Help from "./pages/Help";
+import ACalendar from "./pages/ACalendar";
 
 function App() {
   const location = useLocation();
@@ -54,6 +55,7 @@ function App() {
           <Route path="/leaveBalanceEditor" element={<LeaveBalanceEditorModal />} />
           <Route path="/Settings" element={<Settings />} />
           <Route path="/Help" element={<Help />} />
+          <Route path="/ACalendar" element={<ACalendar />} />
           {/* Task creation - full page */}
           <Route path="/task/new/:date" element={<AddTaskPage />} />
           {/* Day details - standalone (direct URL visit / refresh) */}
