@@ -4,7 +4,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link } from 'react-router-dom';
 import { Calendar, ChevronDown, ChevronUp, Pencil, Settings2, Upload, UserRound } from 'lucide-react';
-import { arrayUnion, collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { arrayUnion, collection, collectionGroup, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getUserFromToken, db } from '../firebase';
 import LeaveBalanceEditorModal from './LeaveBalanceEditorModal';
 
@@ -424,6 +424,7 @@ export default function Calender() {
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [attendanceByDate, setAttendanceByDate] = useState({});
   const [showAllHolidays, setShowAllHolidays] = useState(false);
+  const [showAllPending, setShowAllPending] = useState(false);
 
   // ── Deferred CSV state ──────────────────────────────────────────────
   const [pendingCsvFile, setPendingCsvFile] = useState(null);
@@ -431,8 +432,8 @@ export default function Calender() {
   const csvInputRef = useRef(null);
 
   const normalizedRole = String(currentUserRole || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const canManageHolidays = true;
   const canManageLeaveBalances = ['admin', 'hr manager'].includes(normalizedRole);
+  const canManageHolidays = canManageLeaveBalances;
   const selectedMemberId = selectedMember?.id || currentUserEncodedEmail;
   const selectedMemberName = selectedMember ? getMemberName(selectedMember) : (currentUser?.name || currentUserEmail);
   const selectedSwipe = selectedDate ? attendanceByDate[selectedDate] : null;
@@ -446,6 +447,11 @@ export default function Calender() {
   const HOLIDAY_PREVIEW_COUNT = 5;
   const visibleHolidays = showAllHolidays ? filteredHolidays : filteredHolidays.slice(0, HOLIDAY_PREVIEW_COUNT);
   const hasMoreHolidays = filteredHolidays.length > HOLIDAY_PREVIEW_COUNT;
+
+  // Show only 3 pending requests by default; expand with "Show more"
+  const PENDING_PREVIEW_COUNT = 3;
+  const visiblePending = showAllPending ? pendingRequests : pendingRequests.slice(0, PENDING_PREVIEW_COUNT);
+  const hasMorePending = pendingRequests.length > PENDING_PREVIEW_COUNT;
 
   useEffect(() => {
     const api = calRef.current?.getApi();
@@ -579,38 +585,102 @@ export default function Calender() {
     );
   }, [selectedMemberId]);
 
-  // Admin and HR Manager see all pending requests from leave_applied and regulization_applied arrays.
+  // Admin and HR Manager see all pending requests from both subcollections:
+  //   leave/{encodedEmail}/leave_apply/{autoId}
+  //   leave/{encodedEmail}/reg_apply/{autoId}
+  // Uses collection group queries (no composite index needed — filtered client-side).
   useEffect(() => {
     if (!canManageLeaveBalances) {
       setPendingRequests([]);
       return undefined;
     }
 
-    return onSnapshot(
-      collection(db, 'leave'),
-      (snapshot) => {
-        const allRequests = [];
-        snapshot.docs.forEach((leaveDoc) => {
-          const leaveData = leaveDoc.data();
-          const employeeEmail = leaveData.email || leaveData.userEmail || decodeEmail(leaveDoc.id);
-          const employeeName = leaveData.name || leaveData.fullName || leaveData.employeeName || employeeEmail;
-          const leaveApplied = Array.isArray(leaveData.leave_applied) ? leaveData.leave_applied : [];
-          const regularizationApplied = Array.isArray(leaveData.regulization_applied) ? leaveData.regulization_applied : [];
+    // Store results from both listeners separately, then merge
+    const leaveResults = new Map();
+    const regResults = new Map();
 
-          leaveApplied.filter(isPendingRequest).forEach((request, index) => {
-            allRequests.push({ id: `${leaveDoc.id}-leave-${index}`, category: 'Leave', employeeEmail, employeeName, request });
-          });
-          regularizationApplied.filter(isPendingRequest).forEach((request, index) => {
-            allRequests.push({ id: `${leaveDoc.id}-regularization-${index}`, category: 'Regularization', employeeEmail, employeeName, request });
-          });
+    const mergeAndSet = () => {
+      const merged = [
+        ...Array.from(leaveResults.values()),
+        ...Array.from(regResults.values()),
+      ];
+      // Sort newest first
+      merged.sort((a, b) => {
+        const aMs = a._ms || 0;
+        const bMs = b._ms || 0;
+        return bMs - aMs;
+      });
+      setPendingRequests(merged);
+    };
+
+    const resolveMs = (value) => {
+      if (!value) return 0;
+      if (typeof value.toMillis === 'function') return value.toMillis();
+      if (typeof value === 'object' && value.seconds) return Number(value.seconds) * 1000;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') {
+        const ms = new Date(value).getTime();
+        return isNaN(ms) ? 0 : ms;
+      }
+      return 0;
+    };
+
+    const mapDoc = (docSnap, category) => {
+      const data = docSnap.data();
+      const status = String(data.status || '').trim().toLowerCase();
+      if (status !== 'pending') return null;
+
+      const parentPath = docSnap.ref.parent.parent?.path || '';
+      const encodedEmail = parentPath.split('/').pop() || '';
+      const employeeEmail = data.email || decodeEmail(encodedEmail);
+      const employeeName = data.name || data.fullName || employeeEmail;
+
+      return {
+        id: `${category}-${docSnap.id}`,
+        category,
+        employeeEmail,
+        employeeName,
+        request: data,
+        _ms: resolveMs(data.createdAt) || resolveMs(data.appliedOn),
+      };
+    };
+
+    // Listener 1: leave_apply (leave requests)
+    const unsubLeave = onSnapshot(
+      collectionGroup(db, 'leave_apply'),
+      (snapshot) => {
+        leaveResults.clear();
+        snapshot.docs.forEach((docSnap) => {
+          const mapped = mapDoc(docSnap, 'Leave');
+          if (mapped) leaveResults.set(docSnap.id, mapped);
         });
-        setPendingRequests(allRequests);
+        mergeAndSet();
       },
       (error) => {
-        console.error('Unable to load pending requests:', error);
-        setPendingRequests([]);
+        console.error('Unable to load pending leave requests:', error);
       }
     );
+
+    // Listener 2: reg_apply (regularization requests)
+    const unsubReg = onSnapshot(
+      collectionGroup(db, 'reg_apply'),
+      (snapshot) => {
+        regResults.clear();
+        snapshot.docs.forEach((docSnap) => {
+          const mapped = mapDoc(docSnap, 'Regularization');
+          if (mapped) regResults.set(docSnap.id, mapped);
+        });
+        mergeAndSet();
+      },
+      (error) => {
+        console.error('Unable to load pending regularization requests:', error);
+      }
+    );
+
+    return () => {
+      unsubLeave();
+      unsubReg();
+    };
   }, [canManageLeaveBalances]);
 
   // Swipes: users/{email} -> attendanceIds -> attendance/{id}.dates -> { date: { first_join_time, last_leave_time } }.
@@ -1059,7 +1129,22 @@ export default function Calender() {
             {/* Pending Requests */}
             {canManageLeaveBalances && <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-2"><div><h2 className="text-[15px] font-bold tracking-tight text-slate-800">Pending Requests</h2><p className="mt-0.5 text-[10px] text-slate-400">Leave & regularization requests</p></div><span className="rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-600">{pendingRequests.length} Pending</span></div>
-              <div className="max-h-72 overflow-y-auto pr-1">{pendingRequests.length === 0 ? <div className="rounded-xl bg-slate-50 px-3 py-5 text-center"><p className="text-[11px] font-medium text-slate-500">No pending requests</p></div> : <div className="flex flex-col gap-2">{pendingRequests.map((item) => { const request = item.request; const requestType = request.leaveType || request.leave_type || request.type || request.permissionType || item.category; const fromDate = request.fromDate || request.from_date || request.startDate || request.date || ''; const toDate = request.toDate || request.to_date || request.endDate || ''; return <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-[11px] font-semibold text-slate-700">{item.employeeName}</p><p className="truncate text-[10px] text-slate-400">{item.employeeEmail}</p></div><span className="flex-shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">{item.category}</span></div><div className="mt-2 flex items-center justify-between gap-2 text-[10px]"><span className="truncate font-medium text-slate-500">{requestType}</span>{(fromDate || toDate) && <span className="flex-shrink-0 text-slate-400">{fromDate}{toDate && toDate !== fromDate ? ` → ${toDate}` : ''}</span>}</div></div>; })}</div>}</div>
+              <div className="pr-1">{pendingRequests.length === 0 ? <div className="rounded-xl bg-slate-50 px-3 py-5 text-center"><p className="text-[11px] font-medium text-slate-500">No pending requests</p></div> : <div className="flex flex-col gap-2">{visiblePending.map((item) => { const request = item.request; const requestType = request.leaveType || request.leave_type || request.type || request.permissionType || item.category; const fromDate = request.fromDate || request.from_date || request.startDate || request.date || ''; const toDate = request.toDate || request.to_date || request.endDate || ''; return <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-[11px] font-semibold text-slate-700">{item.employeeName}</p><p className="truncate text-[10px] text-slate-400">{item.employeeEmail}</p></div><span className="flex-shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">{item.category}</span></div><div className="mt-2 flex items-center justify-between gap-2 text-[10px]"><span className="truncate font-medium text-slate-500">{requestType}</span>{(fromDate || toDate) && <span className="flex-shrink-0 text-slate-400">{fromDate}{toDate && toDate !== fromDate ? ` → ${toDate}` : ''}</span>}</div></div>; })}</div>}
+              {/* Show more / Show less toggle */}
+              {hasMorePending && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllPending((v) => !v)}
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-100 bg-slate-50 py-2 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                >
+                  {showAllPending ? (
+                    <>Show less <ChevronUp className="h-3 w-3" /></>
+                  ) : (
+                    <>Show {pendingRequests.length - PENDING_PREVIEW_COUNT} more <ChevronDown className="h-3 w-3" /></>
+                  )}
+                </button>
+              )}
+              </div>
             </div>}
 
             {/* ── Holiday List ─────────────────────────────────────────── */}
