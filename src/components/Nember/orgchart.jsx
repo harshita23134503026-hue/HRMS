@@ -691,15 +691,15 @@ export default function OrgChart() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8 font-sans" style={{ fontFamily: "Roboto, sans-serif" }}>
+    <div>
       {/* Custom scrollbar CSS */}
       <style>{SCROLLBAR_STYLES}</style>
 
-      <div className="mb-8">
+      {/* <div className="mb-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-1" style={{ fontFamily: "Inter, sans-serif" }}>
           Org Chart
         </h1>
-      </div>
+      </div> */}
 
       <div style={{ width: "100%", height: "70vh", overflow: "hidden", position: "relative", background: "#f0f4f8", borderRadius: 16, border: "1px solid #e2e8f0" }}>
         {/* Canvas — drag to pan with hand cursor + beautiful scrollbars (horizontal & vertical) */}
