@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   collection,
-  getDocs,
-  writeBatch,
   doc,
-  increment,
+  getDocs,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
-import { X, Users, UserRoundCheck } from 'lucide-react';
+import { UserRoundCheck, Users, X } from 'lucide-react';
 import { db } from '../firebase'; // Update path if needed
 
 const LEAVE_FIELDS = [
@@ -19,17 +18,24 @@ const LEAVE_FIELDS = [
   { key: 'lossOfPay', label: 'Loss of Pay' },
 ];
 
-const EMPTY_COUNTS = {
+const createEmptyCounts = () => ({
   plannedLeave: 0,
   sickLeave: 0,
   casualLeave: 0,
   specialLeave: 0,
   workFromHome: 0,
   lossOfPay: 0,
-};
+});
 
-// john.doe@gmail.com => john_doe@gmail_com
-export const leaveDocumentId = (email = '') => email.replace(/\./g, '_');
+/**
+ * Converts:
+ * abc@gmail.com
+ *
+ * Into:
+ * abc@gmail_com
+ */
+export const leaveDocumentId = (email = '') =>
+  email.trim().toLowerCase().replace(/\./g, '_');
 
 export default function LeaveBalanceEditorModal({
   isOpen,
@@ -39,7 +45,7 @@ export default function LeaveBalanceEditorModal({
   const [scope, setScope] = useState('all');
   const [users, setUsers] = useState([]);
   const [selectedEmails, setSelectedEmails] = useState([]);
-  const [counts, setCounts] = useState(EMPTY_COUNTS);
+  const [counts, setCounts] = useState(createEmptyCounts);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -52,21 +58,34 @@ export default function LeaveBalanceEditorModal({
         setLoadingUsers(true);
         setError('');
 
-        // Assumes you have a Firestore "users" collection
-        // and every user document has at least { email, name }.
+        /*
+          Assumes the following Firestore collection:
+
+          users/{userDocumentId}
+
+          Each user document should contain:
+          {
+            email: "abc@gmail.com",
+            name: "ABC"
+          }
+        */
         const snapshot = await getDocs(collection(db, 'users'));
 
         const userList = snapshot.docs
-          .map((userDoc) => ({
-            id: userDoc.id,
-            email: userDoc.data().email,
-            name: userDoc.data().name || userDoc.data().displayName || '',
-          }))
+          .map((userDocument) => {
+            const data = userDocument.data();
+
+            return {
+              id: userDocument.id,
+              email: data.email?.trim() || '',
+              name: data.name || data.displayName || '',
+            };
+          })
           .filter((user) => user.email);
 
         setUsers(userList);
       } catch (err) {
-        console.error(err);
+        console.error('Error loading users:', err);
         setError('Unable to load users. Please try again.');
       } finally {
         setLoadingUsers(false);
@@ -83,27 +102,37 @@ export default function LeaveBalanceEditorModal({
   if (!isOpen) return null;
 
   const toggleUser = (email) => {
-    setSelectedEmails((previous) =>
-      previous.includes(email)
-        ? previous.filter((item) => item !== email)
-        : [...previous, email]
-    );
+    setSelectedEmails((previousEmails) => {
+      if (previousEmails.includes(email)) {
+        return previousEmails.filter(
+          (selectedEmail) => selectedEmail !== email
+        );
+      }
+
+      return [...previousEmails, email];
+    });
   };
 
   const updateCount = (key, value) => {
     const numericValue = Math.max(0, Number(value) || 0);
 
-    setCounts((previous) => ({
-      ...previous,
+    setCounts((previousCounts) => ({
+      ...previousCounts,
       [key]: numericValue,
     }));
   };
 
-  const handleCancel = () => {
+  const resetForm = () => {
     setScope('all');
     setSelectedEmails([]);
-    setCounts(EMPTY_COUNTS);
+    setCounts(createEmptyCounts());
     setError('');
+  };
+
+  const handleCancel = () => {
+    if (saving) return;
+
+    resetForm();
     onClose();
   };
 
@@ -113,12 +142,14 @@ export default function LeaveBalanceEditorModal({
     );
 
     if (!hasAtLeastOneLeaveValue) {
-      setError('Please enter a leave count greater than 0.');
+      setError('Please enter at least one leave count greater than 0.');
       return;
     }
 
     const targetEmails =
-      scope === 'all' ? users.map((user) => user.email) : selectedEmails;
+      scope === 'all'
+        ? users.map((user) => user.email)
+        : selectedEmails;
 
     if (!targetEmails.length) {
       setError('Please select at least one user.');
@@ -130,43 +161,73 @@ export default function LeaveBalanceEditorModal({
       setError('');
 
       /*
-        Firestore write batches allow up to 500 writes.
-        Keeping each batch at 450 provides a safety margin.
-      */
-      const chunks = [];
-      for (let i = 0; i < targetEmails.length; i += 450) {
-        chunks.push(targetEmails.slice(i, i + 450));
-      }
+        Firestore structure created for each user:
 
-      for (const emailChunk of chunks) {
+        leave/{emailDocumentId}/balance/{autoGeneratedDocumentId}
+
+        Example:
+
+        leave/abc@gmail_com/balance/AbCdEf123456
+      */
+
+      /*
+        A Firestore batch supports up to 500 writes.
+        This code uses 450 writes per batch as a safety margin.
+        Each selected user produces one write.
+      */
+      const batchSize = 450;
+
+      for (
+        let startIndex = 0;
+        startIndex < targetEmails.length;
+        startIndex += batchSize
+      ) {
+        const emailChunk = targetEmails.slice(
+          startIndex,
+          startIndex + batchSize
+        );
+
         const batch = writeBatch(db);
 
         emailChunk.forEach((email) => {
-          const leaveRef = doc(db, 'leave', leaveDocumentId(email));
+          /*
+            Reference to:
 
-          batch.set(
-            leaveRef,
-            {
-              email,
-              plannedLeave: increment(counts.plannedLeave),
-              sickLeave: increment(counts.sickLeave),
-              casualLeave: increment(counts.casualLeave),
-              specialLeave: increment(counts.specialLeave),
-              workFromHome: increment(counts.workFromHome),
-              lossOfPay: increment(counts.lossOfPay),
-              updatedBy: currentUserEmail || '',
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
+            leave/{emailDocumentId}/balance
+          */
+          const balanceCollectionRef = collection(
+            db,
+            'leave',
+            leaveDocumentId(email),
+            'balance'
           );
+
+          /*
+            Calling doc() without an ID creates a document reference
+            with an automatically generated Firestore ID.
+          */
+          const balanceDocumentRef = doc(balanceCollectionRef);
+
+          batch.set(balanceDocumentRef, {
+            email,
+            plannedLeave: Number(counts.plannedLeave) || 0,
+            sickLeave: Number(counts.sickLeave) || 0,
+            casualLeave: Number(counts.casualLeave) || 0,
+            specialLeave: Number(counts.specialLeave) || 0,
+            workFromHome: Number(counts.workFromHome) || 0,
+            lossOfPay: Number(counts.lossOfPay) || 0,
+            updatedBy: currentUserEmail || '',
+            updatedAt: serverTimestamp(),
+          });
         });
 
         await batch.commit();
       }
 
-      handleCancel();
+      resetForm();
+      onClose();
     } catch (err) {
-      console.error('Error saving leave balance:', err);
+      console.error('Error saving leave balances:', err);
       setError('Could not save leave balances. Please try again.');
     } finally {
       setSaving(false);
@@ -175,9 +236,11 @@ export default function LeaveBalanceEditorModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
       onClick={(event) => {
-        if (event.target === event.currentTarget) handleCancel();
+        if (event.target === event.currentTarget) {
+          handleCancel();
+        }
       }}
     >
       <div className="w-full max-w-2xl rounded-2xl border border-slate-100 bg-white p-5 shadow-xl sm:p-6">
@@ -186,6 +249,7 @@ export default function LeaveBalanceEditorModal({
             <h3 className="text-base font-bold text-slate-800">
               Edit Leave Balance
             </h3>
+
             <p className="mt-1 text-xs text-slate-400">
               Add leave counts for all employees or selected employees.
             </p>
@@ -194,7 +258,8 @@ export default function LeaveBalanceEditorModal({
           <button
             type="button"
             onClick={handleCancel}
-            className="text-slate-400 transition-colors hover:text-slate-700"
+            disabled={saving}
+            className="text-slate-400 transition-colors hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -204,8 +269,12 @@ export default function LeaveBalanceEditorModal({
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
             type="button"
-            onClick={() => setScope('all')}
-            className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+            onClick={() => {
+              setScope('all');
+              setError('');
+            }}
+            disabled={saving}
+            className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               scope === 'all'
                 ? 'border-blue-300 bg-blue-50'
                 : 'border-slate-200 hover:bg-slate-50'
@@ -216,8 +285,12 @@ export default function LeaveBalanceEditorModal({
                 scope === 'all' ? 'text-blue-600' : 'text-slate-400'
               }`}
             />
+
             <div>
-              <p className="text-sm font-semibold text-slate-700">All Users</p>
+              <p className="text-sm font-semibold text-slate-700">
+                All Users
+              </p>
+
               <p className="text-[11px] text-slate-400">
                 Apply leave counts to every user.
               </p>
@@ -226,8 +299,12 @@ export default function LeaveBalanceEditorModal({
 
           <button
             type="button"
-            onClick={() => setScope('custom')}
-            className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+            onClick={() => {
+              setScope('custom');
+              setError('');
+            }}
+            disabled={saving}
+            className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               scope === 'custom'
                 ? 'border-blue-300 bg-blue-50'
                 : 'border-slate-200 hover:bg-slate-50'
@@ -238,10 +315,12 @@ export default function LeaveBalanceEditorModal({
                 scope === 'custom' ? 'text-blue-600' : 'text-slate-400'
               }`}
             />
+
             <div>
               <p className="text-sm font-semibold text-slate-700">
                 Custom Users
               </p>
+
               <p className="text-[11px] text-slate-400">
                 Choose specific employees.
               </p>
@@ -267,21 +346,25 @@ export default function LeaveBalanceEditorModal({
               ) : (
                 users.map((user) => (
                   <label
-                    key={user.email}
+                    key={user.id}
                     className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-0 hover:bg-slate-50"
                   >
                     <input
                       type="checkbox"
                       checked={selectedEmails.includes(user.email)}
                       onChange={() => toggleUser(user.email)}
-                      className="h-4 w-4 accent-blue-600"
+                      disabled={saving}
+                      className="h-4 w-4 accent-blue-600 disabled:cursor-not-allowed"
                     />
 
                     <div>
                       <p className="text-xs font-semibold text-slate-700">
                         {user.name || 'Unnamed User'}
                       </p>
-                      <p className="text-[11px] text-slate-400">{user.email}</p>
+
+                      <p className="text-[11px] text-slate-400">
+                        {user.email}
+                      </p>
                     </div>
                   </label>
                 ))
@@ -305,11 +388,13 @@ export default function LeaveBalanceEditorModal({
                 <input
                   type="number"
                   min="0"
+                  step="1"
                   value={counts[field.key]}
                   onChange={(event) =>
                     updateCount(field.key, event.target.value)
                   }
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
+                  disabled={saving}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-70"
                 />
               </label>
             ))}
@@ -332,7 +417,7 @@ export default function LeaveBalanceEditorModal({
             type="button"
             onClick={handleCancel}
             disabled={saving}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>

@@ -522,7 +522,11 @@ export default function Calender() {
     );
   }, [canManageLeaveBalances, currentUserEncodedEmail, currentUserEmail, currentUser?.name]);
 
-  // Read the selected employee's document: leave/{email_with_dots_replaced_by_underscores}.
+  // Read the selected employee's leave balances from the subcollection:
+  // leave/{encodedEmail}/balance/{autoId}
+  // Multiple balance docs may exist; we use the latest one (by createdAt
+  // timestamp if available, otherwise by document ID which is chronological
+  // for Firestore auto-IDs).
   useEffect(() => {
     if (!selectedMemberId) {
       setLeaveBalances(INITIAL_LEAVE_BALANCES);
@@ -530,20 +534,42 @@ export default function Calender() {
     }
 
     return onSnapshot(
-      doc(db, 'leave', selectedMemberId),
+      collection(db, 'leave', selectedMemberId, 'balance'),
       (snapshot) => {
-        if (!snapshot.exists()) {
+        if (snapshot.empty) {
           setLeaveBalances(INITIAL_LEAVE_BALANCES);
           return;
         }
-        const data = snapshot.data();
+
+        // Sort documents to find the latest one.
+        // Prefer a createdAt / timestamp field; fall back to doc ID ordering.
+        const docs = [...snapshot.docs].sort((a, b) => {
+          const aData = a.data();
+          const bData = b.data();
+          const aTime = aData.createdAt?.toMillis?.()
+            ?? aData.createdAt?.seconds
+            ?? aData.timestamp?.toMillis?.()
+            ?? aData.timestamp?.seconds
+            ?? 0;
+          const bTime = bData.createdAt?.toMillis?.()
+            ?? bData.createdAt?.seconds
+            ?? bData.timestamp?.toMillis?.()
+            ?? bData.timestamp?.seconds
+            ?? 0;
+          if (aTime !== bTime) return bTime - aTime; // descending (latest first)
+          // Fall back to doc ID comparison (auto-IDs are chronological)
+          return b.id.localeCompare(a.id);
+        });
+
+        const latestData = docs[0].data();
+
         setLeaveBalances({
-          plannedLeave: data.plannedLeave ?? INITIAL_LEAVE_BALANCES.plannedLeave,
-          sickLeave: data.sickLeave ?? INITIAL_LEAVE_BALANCES.sickLeave,
-          casualLeave: data.casualLeave ?? INITIAL_LEAVE_BALANCES.casualLeave,
-          specialLeave: data.specialLeave ?? INITIAL_LEAVE_BALANCES.specialLeave,
-          workFromHome: data.workFromHome ?? INITIAL_LEAVE_BALANCES.workFromHome,
-          lossOfPay: data.lossOfPay ?? INITIAL_LEAVE_BALANCES.lossOfPay,
+          plannedLeave: latestData.plannedLeave ?? INITIAL_LEAVE_BALANCES.plannedLeave,
+          sickLeave: latestData.sickLeave ?? INITIAL_LEAVE_BALANCES.sickLeave,
+          casualLeave: latestData.casualLeave ?? INITIAL_LEAVE_BALANCES.casualLeave,
+          specialLeave: latestData.specialLeave ?? INITIAL_LEAVE_BALANCES.specialLeave,
+          workFromHome: latestData.workFromHome ?? INITIAL_LEAVE_BALANCES.workFromHome,
+          lossOfPay: latestData.lossOfPay ?? INITIAL_LEAVE_BALANCES.lossOfPay,
         });
       },
       (error) => {
