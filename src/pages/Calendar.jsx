@@ -16,12 +16,67 @@ const LeaveCard = ({ label, total, consumed, accent }) => (
   </div>
 );
 
-const LegendDot = ({ bg, label }) => (
-  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-    <span className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ background: bg }} />
-    {label}
+// ── Legend visual components ────────────────────────────────────────────
+
+// Type "badge": colored square with letter(s) inside
+const LegendBadge = ({ letter, bg, color, label }) => (
+  <div className="flex items-center gap-1.5">
+    <span
+      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-[8px] font-bold leading-none shadow-sm"
+      style={{ background: bg, color: color || '#fff' }}
+    >
+      {letter}
+    </span>
+    <span className="text-[10px] font-medium text-slate-600">{label}</span>
   </div>
 );
+
+// Type "alert": pulsing dot with a glow ring
+const LegendAlert = ({ bg, label }) => (
+  <div className="flex items-center gap-1.5">
+    <span className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
+      <span className="absolute h-4 w-4 rounded-full opacity-30" style={{ background: bg }} />
+      <span className="relative h-2.5 w-2.5 rounded-full" style={{ background: bg }} />
+    </span>
+    <span className="text-[10px] font-medium text-slate-600">{label}</span>
+  </div>
+);
+
+// Type "icon": a small SVG icon
+const LegendIcon = ({ icon, bg, color, label }) => (
+  <div className="flex items-center gap-1.5">
+    <span
+      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
+      style={{ background: bg }}
+    >
+      {icon}
+    </span>
+    <span className="text-[10px] font-medium text-slate-600">{label}</span>
+  </div>
+);
+
+// Type "triangle": a cell with a corner triangle in the bottom-left
+const LegendTriangle = ({ bg, triangleColor, label }) => (
+  <div className="flex items-center gap-1.5">
+    <span className="relative flex h-5 w-5 flex-shrink-0 overflow-hidden rounded-md" style={{ background: bg }}>
+      <svg className="absolute bottom-0 left-0" width="10" height="10" viewBox="0 0 10 10">
+        <polygon points="0,10 10,10 0,0" fill={triangleColor} />
+      </svg>
+    </span>
+    <span className="text-[10px] font-medium text-slate-600">{label}</span>
+  </div>
+);
+
+// Unified renderer
+const LegendItem = ({ type, ...props }) => {
+  switch (type) {
+    case 'badge': return <LegendBadge {...props} />;
+    case 'alert': return <LegendAlert {...props} />;
+    case 'icon': return <LegendIcon {...props} />;
+    case 'triangle': return <LegendTriangle {...props} />;
+    default: return <LegendBadge {...props} />;
+  }
+};
 
 const LEAVE_CARDS = [
   { key: 'plannedLeave', label: 'Planned Leave', defaultTotal: 3, consumed: 0 },
@@ -42,17 +97,68 @@ const INITIAL_LEAVE_BALANCES = {
 };
 
 const LEGEND_ITEMS = [
-  { bg: '#4ade80', label: 'Present' }, { bg: '#f87171', label: 'Absent' },
-  { bg: '#94a3b8', label: 'Off Day' }, { bg: '#60a5fa', label: 'Rest Day' },
-  { bg: '#fb923c', label: 'Leave' }, { bg: '#facc15', label: 'On Duty' },
-  { bg: '#f472b6', label: 'Holiday' }, { bg: '#fde047', label: 'Alert/Deduction' },
-  { bg: '#ef4444', label: 'Deduction' }, { bg: '#a78bfa', label: 'Status Unknown' },
-  { bg: '#2563eb', label: 'Overtime' }, { bg: '#16a34a', label: 'Override' },
-  { bg: '#86efac', label: 'Permission' }, { bg: '#cbd5e1', label: 'Ignored' },
-  { bg: '#2dd4bf', label: 'Grace' },
+  // Badge type: colored square with letter
+  { type: 'badge', letter: 'P', bg: '#22c55e', color: '#fff', label: 'Present' },
+  { type: 'badge', letter: 'A', bg: '#ef4444', color: '#fff', label: 'Absent' },
+  { type: 'badge', letter: 'O', bg: '#94a3b8', color: '#fff', label: 'Off Day' },
+  { type: 'badge', letter: 'R', bg: '#64748b', color: '#fff', label: 'Rest Day' },
+  { type: 'badge', letter: 'L', bg: '#f472b6', color: '#fff', label: 'Leave' },
+  { type: 'badge', letter: 'OD', bg: '#fef08a', color: '#854d0e', label: 'On Duty' },
+  { type: 'badge', letter: 'H', bg: '#93c5fd', color: '#1e3a8a', label: 'Holiday' },
+  { type: 'badge', letter: '?', bg: '#dc2626', color: '#fff', label: 'Status Unknown' },
+  // Alert type: glowing dot
+  { type: 'alert', bg: '#f97316', label: 'Alert / Deduction' },
+  { type: 'alert', bg: '#ef4444', label: 'Deduction' },
+  // Icon type: small SVG icon
+  {
+    type: 'icon',
+    bg: '#dbeafe',
+    label: 'Overtime',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+        <line x1="19" y1="5" x2="22" y2="2" />
+        <line x1="22" y1="5" x2="19" y2="2" />
+      </svg>
+    ),
+  },
+  {
+    type: 'icon',
+    bg: '#dcfce7',
+    label: 'Override',
+    icon: (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+        <polyline points="21 3 21 8 16 8" />
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+        <polyline points="3 21 3 16 8 16" />
+      </svg>
+    ),
+  },
+  // Triangle type: corner triangle in bottom-left
+  { type: 'triangle', bg: '#f0fdf4', triangleColor: '#22c55e', label: 'Permission' },
+  { type: 'triangle', bg: '#f1f5f9', triangleColor: '#94a3b8', label: 'Ignored' },
+  { type: 'triangle', bg: '#eff6ff', triangleColor: '#3b82f6', label: 'Grace' },
 ];
 
-const DAY_TYPES = ['🛌 Rest Day', '📅 Off Day', '🌴 Holiday', '🌓 Half Day', '🏭 Plant Shutdown'];
+const DAY_TYPES = [
+  { emoji: '🛌', label: 'Rest Day', bg: '#ede9fe', border: '#ddd6fe', text: '#6d28d9' },
+  { emoji: '📅', label: 'Off Day', bg: '#f1f5f9', border: '#e2e8f0', text: '#475569' },
+  { emoji: '🌴', label: 'Holiday', bg: '#ecfdf5', border: '#a7f3d0', text: '#047857' },
+  { emoji: '🌓', label: 'Half Day', bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
+  { emoji: '🏭', label: 'Plant Shutdown', bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
+];
+
+const DayTypeChip = ({ emoji, label, bg, border, text }) => (
+  <span
+    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold shadow-sm"
+    style={{ background: bg, border: `1px solid ${border}`, color: text }}
+  >
+    <span className="text-[12px] leading-none">{emoji}</span>
+    {label}
+  </span>
+);
 
 const HOLIDAYS = [
   { id: '1', name: 'Republic Day', date: 'Mon, 26 January', dateLabel: 'Mon, 26 January', startDate: '2026-01-26', endDate: '', day: 'Monday' },
@@ -856,13 +962,13 @@ export default function Calender() {
               onToggle={() => setLegendOpen((v) => !v)}
               badge={<span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-400">{LEGEND_ITEMS.length}</span>}
             >
-              <div className="grid grid-cols-3 gap-x-3 gap-y-2 sm:grid-cols-5">
-                {LEGEND_ITEMS.map((item) => <LegendDot key={item.label} {...item} />)}
+              <div className="grid grid-cols-3 gap-x-3 gap-y-2.5 sm:grid-cols-5">
+                {LEGEND_ITEMS.map((item) => <LegendItem key={item.label} {...item} />)}
               </div>
               <div className="mt-3 border-t border-slate-100 pt-3">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">Day Type</span>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                  {DAY_TYPES.map((type) => <span key={type} className="text-[11px] text-slate-500">{type}</span>)}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {DAY_TYPES.map((type) => <DayTypeChip key={type.label} {...type} />)}
                 </div>
               </div>
             </CollapsibleSection>
