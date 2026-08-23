@@ -455,7 +455,7 @@ export default function AdminPage() {
                 { label: 'Total Reg.', value: filteredReg.length, color: 'violet' },
                 { label: 'Pending Reg.', value: pendingReg.length, color: 'amber' },
               ].map((stat) => (
-                <div key={stat.label} className={`rounded-2xl border bg-white p-4 shadow-sm`}>
+                <div key={stat.label} className={`rounded-2xl border-blue bg-white p-4 shadow-sm`}>
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{stat.label}</p>
                   <p className={`mt-1 text-2xl font-bold text-${stat.color}-600`}>{stat.value}</p>
                 </div>
