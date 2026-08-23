@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,63 +7,328 @@ import {
   ChevronDown,
   Info,
   X,
-  Upload
+  Upload,
 } from 'lucide-react';
+import { collection, addDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { getUserFromToken, db } from '../../firebase';
 import PendingList from './leave_pending';
 import HistoryList from './leave_history';
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+const encodeEmail = (email = '') =>
+  String(email).trim().toLowerCase().replace(/\./g, '_');
+
+const LEAVE_TYPE_KEYS = {
+  'Planned Leave': 'plannedLeave',
+  'Sick Leave': 'sickLeave',
+  'Casual Leave': 'casualLeave',
+  'Special Leave': 'specialLeave',
+  'Work From Home': 'workFromHome',
+  'Loss of Pay': 'lossOfPay',
+};
+
+const INITIAL_LEAVE_BALANCES = {
+  plannedLeave: 0,
+  sickLeave: 0,
+  casualLeave: 0,
+  specialLeave: 0,
+  workFromHome: 0,
+  lossOfPay: 0,
+};
+
+const LEAVE_TYPE_LIST = [
+  { label: 'Planned Leave', key: 'plannedLeave' },
+  { label: 'Sick Leave', key: 'sickLeave' },
+  { label: 'Casual Leave', key: 'casualLeave' },
+  { label: 'Special Leave', key: 'specialLeave' },
+  { label: 'Work From Home', key: 'workFromHome' },
+  { label: 'Loss of Pay', key: 'lossOfPay' },
+];
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+const MONTH_NAMES_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const DAY_HEADERS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+// ISO "2026-08-25" → "25 Aug 2026"
+const formatIsoDisplay = (iso = '') => {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${parseInt(d, 10)} ${MONTH_NAMES_SHORT[parseInt(m, 10) - 1]} ${y}`;
+};
+
+const toIso = (year, month, day) =>
+  `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+// ── Beautiful Date Picker ────────────────────────────────────────────────
+const DatePicker = ({ value, onChange, placeholder = 'Select date', minDate = '', maxDate = '' }) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  // Parse the current value to initialize the popup calendar
+  const parsed = value ? value.split('-').map(Number) : null;
+  const [viewYear, setViewYear] = useState(parsed ? parsed[0] : new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed ? parsed[1] - 1 : new Date().getMonth());
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return undefined;
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Build calendar cells for the popup
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const todayIso = toIso(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+  const cells = [];
+  for (let i = firstDay - 1; i >= 0; i--) cells.push({ day: null });
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d });
+  const rem = (7 - (cells.length % 7)) % 7;
+  for (let i = 1; i <= rem; i++) cells.push({ day: null });
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+    else setViewMonth(viewMonth - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+    else setViewMonth(viewMonth + 1);
+  };
+
+  const handleSelect = (day) => {
+    const iso = toIso(viewYear, viewMonth, day);
+    // Respect min/max constraints
+    if (minDate && iso < minDate) return;
+    if (maxDate && iso > maxDate) return;
+    onChange(iso);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative flex-1">
+      {/* Input trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-2 border rounded-xl px-3 py-2.5 text-sm text-left transition focus:outline-none focus:ring-2 focus:ring-sky-400 ${
+          open ? 'border-sky-400 bg-sky-50/40' : 'border-gray-200 hover:border-sky-300'
+        }`}
+      >
+        <CalendarIcon size={15} className="flex-shrink-0 text-sky-400" />
+        <span className={value ? 'text-gray-900 font-medium' : 'text-gray-400'}>
+          {value ? formatIsoDisplay(value) : placeholder}
+        </span>
+        {value && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onChange(''); }}
+            className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300 transition"
+          >
+            <X size={8} />
+          </span>
+        )}
+      </button>
+
+      {/* Calendar popup */}
+      {open && (
+        <div className="absolute z-50 mt-2 w-[280px] rounded-2xl border border-gray-100 bg-white shadow-2xl shadow-gray-200/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 pt-4 pb-2">
+            <button
+              type="button"
+              onClick={prevMonth}
+              className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-gray-100 transition"
+            >
+              <ChevronLeft size={16} className="text-gray-500" />
+            </button>
+            <span className="text-sm font-semibold text-gray-800">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={nextMonth}
+              className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-gray-100 transition"
+            >
+              <ChevronRight size={16} className="text-gray-500" />
+            </button>
+          </div>
+
+          {/* Day headers */}
+          <div className="grid grid-cols-7 px-3 pb-1">
+            {DAY_HEADERS.map((d) => (
+              <div key={d} className="text-center text-[10px] font-semibold uppercase text-gray-400 py-1">
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* Days grid */}
+          <div className="grid grid-cols-7 px-3 pb-3 gap-y-0.5">
+            {cells.map((cell, idx) => {
+              if (!cell.day) {
+                return <div key={idx} />;
+              }
+
+              const iso = toIso(viewYear, viewMonth, cell.day);
+              const isSelected = iso === value;
+              const isToday = iso === todayIso;
+              const isDisabled = (minDate && iso < minDate) || (maxDate && iso > maxDate);
+
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => handleSelect(cell.day)}
+                  className={`h-8 w-8 mx-auto flex items-center justify-center rounded-lg text-xs font-medium transition
+                    ${isSelected
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : isToday
+                        ? 'bg-sky-50 text-sky-600 ring-1 ring-sky-200'
+                        : isDisabled
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                >
+                  {cell.day}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Today shortcut */}
+          <div className="border-t border-gray-100 px-4 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                setViewYear(now.getFullYear());
+                setViewMonth(now.getMonth());
+                handleSelect(now.getDate());
+              }}
+              className="w-full text-center text-[11px] font-semibold text-sky-500 hover:text-sky-700 transition"
+            >
+              Today
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Main Component ───────────────────────────────────────────────────────
 const LeaveManagement = () => {
+  const navigate = useNavigate();
+  const currentUser = getUserFromToken();
+  const currentUserEmail = currentUser?.email?.toLowerCase() || '';
+  const encodedEmail = encodeEmail(currentUserEmail);
+
+  const todayNow = new Date();
+
   // --- State ---
-  const today = new Date();
-  const [currentDate, setCurrentDate] = useState(new Date(2025, 6, 1)); // July 2025
+  const [currentDate, setCurrentDate] = useState(
+    new Date(todayNow.getFullYear(), todayNow.getMonth(), 1)
+  );
   const [activeTab, setActiveTab] = useState('Apply');
-  const [selectedDay, setSelectedDay] = useState(15); // Matches image highlight
+  const [selectedDay, setSelectedDay] = useState(todayNow.getDate());
   const [leaveType, setLeaveType] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [description, setDescription] = useState('');
   const [attachment, setAttachment] = useState(null);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
   const fileInputRef = useRef(null);
 
-  const leaveBalances = [
-    { title: 'Planned Leave', total: 3, consumed: 0 },
-    { title: 'Sick Leave', total: 3, consumed: 0 },
-    { title: 'Casual Leave', total: 3, consumed: 0 },
-    { title: 'Special Leave', total: 0, consumed: 0 },
-    { title: 'Work From Home', total: 3, consumed: 0 },
-    { title: 'Loss of Pay', total: 0, consumed: 0 },
-  ];
+  const [leaveBalances, setLeaveBalances] = useState(
+    LEAVE_TYPE_LIST.map((t) => ({
+      title: t.label,
+      key: t.key,
+      total: INITIAL_LEAVE_BALANCES[t.key] ?? 0,
+      consumed: 0,
+    }))
+  );
 
-  const leaveTypes = [
-    'Planned Leave',
-    'Sick Leave',
-    'Casual Leave',
-    'Special Leave',
-    'Work From Home',
-    'Loss of Pay',
-  ];
+  // --- Fetch leave balances: leave/{encodedEmail}/balance/{autoId} ---
+  useEffect(() => {
+    if (!encodedEmail) return undefined;
+
+    return onSnapshot(
+      collection(db, 'leave', encodedEmail, 'balance'),
+      (snapshot) => {
+        if (snapshot.empty) {
+          setLeaveBalances(
+            LEAVE_TYPE_LIST.map((t) => ({
+              title: t.label,
+              key: t.key,
+              total: INITIAL_LEAVE_BALANCES[t.key] ?? 0,
+              consumed: 0,
+            }))
+          );
+          return;
+        }
+
+        const docs = [...snapshot.docs].sort((a, b) => {
+          const aData = a.data();
+          const bData = b.data();
+          const aTime =
+            aData.createdAt?.toMillis?.() ?? aData.createdAt?.seconds ??
+            aData.timestamp?.toMillis?.() ?? aData.timestamp?.seconds ?? 0;
+          const bTime =
+            bData.createdAt?.toMillis?.() ?? bData.createdAt?.seconds ??
+            bData.timestamp?.toMillis?.() ?? bData.timestamp?.seconds ?? 0;
+          if (aTime !== bTime) return bTime - aTime;
+          return b.id.localeCompare(a.id);
+        });
+
+        const latest = docs[0].data();
+
+        setLeaveBalances(
+          LEAVE_TYPE_LIST.map((t) => ({
+            title: t.label,
+            key: t.key,
+            total: latest[t.key] ?? INITIAL_LEAVE_BALANCES[t.key] ?? 0,
+            consumed: latest[`${t.key}Consumed`] ?? latest[`${t.key}_consumed`] ?? 0,
+          }))
+        );
+      },
+      (error) => {
+        console.error('Unable to load leave balances:', error);
+      }
+    );
+  }, [encodedEmail]);
 
   // --- Calendar Logic ---
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
-  const monthName = currentDate.toLocaleString('default', { month: 'long' });
+  const monthName = MONTH_NAMES[month];
 
-  const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sun
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
   const calendarCells = [];
-
-  // Previous month filler
   for (let i = firstDayOfMonth - 1; i >= 0; i--) {
     calendarCells.push({ day: daysInPrevMonth - i, type: 'prev' });
   }
-  // Current month
   for (let i = 1; i <= daysInMonth; i++) {
     calendarCells.push({ day: i, type: 'current' });
   }
-  // Next month filler
   const remainder = (7 - (calendarCells.length % 7)) % 7;
   for (let i = 1; i <= remainder; i++) {
     calendarCells.push({ day: i, type: 'next' });
@@ -85,26 +351,54 @@ const LeaveManagement = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmit = () => {
-    // Validation
-    if (!leaveType || !dateRange.from || !dateRange.to) {
-      alert('Please select a leave type and date range');
+  const handleCancel = () => {
+    navigate(-1);
+  };
+
+  const handleSubmit = async () => {
+    if (!leaveType) {
+      setSubmitMessage('Please select a leave type.');
+      return;
+    }
+    if (!dateRange.from || !dateRange.to) {
+      setSubmitMessage('Please select both From and To dates.');
+      return;
+    }
+    if (dateRange.from > dateRange.to) {
+      setSubmitMessage('From date cannot be after To date.');
+      return;
+    }
+    if (!encodedEmail) {
+      setSubmitMessage('You must be signed in to apply for leave.');
       return;
     }
 
-    // Simulate submission (frontend-only)
     setSubmitting(true);
+    setSubmitMessage('');
 
-    setTimeout(() => {
-      console.log('Leave request submitted (mock):', {
+    try {
+      const leavePayload = {
+        email: currentUserEmail,
+        name: currentUser?.name || currentUser?.displayName || currentUserEmail,
+        userId: encodedEmail,
         requestType: 'leave_request',
-        title: leaveType,
         leaveType,
+        leaveTypeKey: LEAVE_TYPE_KEYS[leaveType] || leaveType,
         fromDate: dateRange.from,
         toDate: dateRange.to,
-        description,
-        attachmentUrl: attachment?.url || null,
-      });
+        description: description.trim(),
+        attachmentName: attachment?.file?.name || '',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        appliedOn: new Date().toISOString(),
+      };
+
+      await addDoc(
+        collection(db, 'leave', encodedEmail, 'leave_apply'),
+        leavePayload
+      );
+
+      setSubmitMessage('Leave request submitted successfully!');
 
       setLeaveType('');
       setDescription('');
@@ -112,9 +406,13 @@ const LeaveManagement = () => {
       setDateRange({ from: '', to: '' });
       if (fileInputRef.current) fileInputRef.current.value = '';
 
+      setTimeout(() => navigate(-1), 1500);
+    } catch (error) {
+      console.error('Unable to submit leave request:', error);
+      setSubmitMessage('Failed to submit. Please try again.');
+    } finally {
       setSubmitting(false);
-      alert('Leave request submitted');
-    }, 800);
+    }
   };
 
   return (
@@ -189,7 +487,7 @@ const LeaveManagement = () => {
           <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-3 gap-4 content-start">
             {leaveBalances.map((item) => (
               <div
-                key={item.title}
+                key={item.key}
                 className="bg-sky-50 rounded-[1.5rem] p-5 flex flex-col items-center justify-center text-center aspect-[4/3] sm:aspect-auto sm:h-36 transition hover:shadow-sm"
               >
                 <span className="text-xs sm:text-sm font-medium text-gray-700 mb-2">
@@ -199,7 +497,7 @@ const LeaveManagement = () => {
                   {item.total}
                 </span>
                 <span className="text-[10px] sm:text-xs text-gray-500 mt-1">
-                  Consumed:{item.consumed}
+                  Consumed: {item.consumed}
                 </span>
               </div>
             ))}
@@ -232,42 +530,24 @@ const LeaveManagement = () => {
 
               {/* Left Column: Duration, Description, Attachment */}
               <div className="space-y-5">
-                {/* Duration */}
+                {/* Duration with custom date pickers */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Duration
                   </label>
                   <div className="flex gap-3">
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        placeholder="dd/mm/yyyy"
-                        value={dateRange.from}
-                        onChange={(e) =>
-                          setDateRange({ ...dateRange, from: e.target.value })
-                        }
-                        className="w-full border border-gray-200 rounded-xl pl-3 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      />
-                      <CalendarIcon
-                        size={16}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                      />
-                    </div>
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        placeholder="dd/mm/yyyy"
-                        value={dateRange.to}
-                        onChange={(e) =>
-                          setDateRange({ ...dateRange, to: e.target.value })
-                        }
-                        className="w-full border border-gray-200 rounded-xl pl-3 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      />
-                      <CalendarIcon
-                        size={16}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                      />
-                    </div>
+                    <DatePicker
+                      value={dateRange.from}
+                      onChange={(v) => setDateRange((prev) => ({ ...prev, from: v }))}
+                      placeholder="From date"
+                      maxDate={dateRange.to || ''}
+                    />
+                    <DatePicker
+                      value={dateRange.to}
+                      onChange={(v) => setDateRange((prev) => ({ ...prev, to: v }))}
+                      placeholder="To date"
+                      minDate={dateRange.from || ''}
+                    />
                   </div>
                 </div>
 
@@ -283,10 +563,7 @@ const LeaveManagement = () => {
                       onChange={(e) => setDescription(e.target.value)}
                       className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent resize-none"
                     />
-                    <Info
-                      size={16}
-                      className="absolute right-3 bottom-3 text-gray-400"
-                    />
+                    <Info size={16} className="absolute right-3 bottom-3 text-gray-400" />
                   </div>
                 </div>
 
@@ -299,11 +576,7 @@ const LeaveManagement = () => {
                     {attachment ? (
                       <div className="relative">
                         <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-200">
-                          <img
-                            src={attachment.url}
-                            alt="attachment"
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={attachment.url} alt="attachment" className="w-full h-full object-cover" />
                         </div>
                         <button
                           onClick={removeAttachment}
@@ -333,7 +606,6 @@ const LeaveManagement = () => {
 
               {/* Right Column: Leave Type */}
               <div className="lg:pt-0">
-                {/* Invisible spacer to align with date inputs on large screens */}
                 <div className="hidden lg:block h-7 mb-2" />
                 <div className="relative">
                   <button
@@ -348,21 +620,18 @@ const LeaveManagement = () => {
 
                   {showDropdown && (
                     <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setShowDropdown(false)}
-                      />
+                      <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
                       <div className="absolute z-20 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl py-1 max-h-60 overflow-auto">
-                        {leaveTypes.map((type) => (
+                        {LEAVE_TYPE_LIST.map((type) => (
                           <div
-                            key={type}
+                            key={type.key}
                             onClick={() => {
-                              setLeaveType(type);
+                              setLeaveType(type.label);
                               setShowDropdown(false);
                             }}
                             className="px-4 py-2.5 text-sm text-gray-700 hover:bg-sky-50 cursor-pointer transition"
                           >
-                            {type}
+                            {type.label}
                           </div>
                         ))}
                       </div>
@@ -372,9 +641,25 @@ const LeaveManagement = () => {
               </div>
             </div>
 
+            {/* Submit / validation message */}
+            {submitMessage && (
+              <div
+                className={`mb-4 rounded-xl px-4 py-2.5 text-sm font-medium ${
+                  submitMessage.includes('success')
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-red-50 text-red-600 border border-red-200'
+                }`}
+              >
+                {submitMessage}
+              </div>
+            )}
+
             {/* Buttons */}
             <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-              <button className="px-8 py-2.5 rounded-full border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+              <button
+                onClick={handleCancel}
+                className="px-8 py-2.5 rounded-full border border-gray-300 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              >
                 Cancel
               </button>
               <button
@@ -388,15 +673,15 @@ const LeaveManagement = () => {
           </div>
         )}
 
-        {/* Placeholder for other tabs */}
+        {/* Pending & History tabs */}
         {activeTab === 'Pending' && (
           <div className="text-center py-20 text-gray-400 text-sm">
-           <PendingList/>
+            <PendingList />
           </div>
         )}
         {activeTab === 'History' && (
           <div className="text-center py-20 text-gray-400 text-sm">
-            <HistoryList/>
+            <HistoryList />
           </div>
         )}
       </div>
