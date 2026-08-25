@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
@@ -396,6 +396,95 @@ const CollapsibleSection = ({ title, icon, isOpen, onToggle, children, badge }) 
   </div>
 );
 
+// ── Calendar data helpers ────────────────────────────────────────────────
+
+// Parse "dd-mm-yyyy" → "YYYY-MM-DD"
+const parseDdmmyyyy = (dateStr = '') => {
+  const match = String(dateStr).trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (!match) return '';
+  const [, dd, mm, yyyy] = match;
+  return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+};
+
+// Parse "HH:MM:SS" or "HH:MM" → total seconds
+const parseTimeToSeconds = (timeStr = '') => {
+  if (!timeStr) return null;
+  const parts = String(timeStr).trim().split(':').map(Number);
+  if (parts.length < 2 || parts.some(isNaN)) return null;
+  const [h, m, s = 0] = parts;
+  return h * 3600 + m * 60 + s;
+};
+
+// Parse ISO timestamp "2026-08-20T22:57:43+05:30" → total seconds of the time portion
+const isoToSeconds = (iso = '') => {
+  const match = String(iso).match(/T(\d{2}):(\d{2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+};
+
+// Check if first_in_time is within the expected grace window.
+// expectedStart/End are in "HH:MM" or "HH:MM:SS" format.
+// Returns true if the time is LATE (outside the window).
+const isLateArrival = (firstInTime, expectedStart = '09:00', expectedEnd = '11:00') => {
+  const arrivalSec = isoToSeconds(firstInTime) ?? parseTimeToSeconds(firstInTime);
+  if (arrivalSec === null) return false;
+  const startSec = parseTimeToSeconds(expectedStart);
+  const endSec = parseTimeToSeconds(expectedEnd);
+  if (startSec === null || endSec === null) return false;
+  return arrivalSec > endSec; // arrived after the grace window
+};
+
+// Compare total_hhmmss from calendar with total duration from attendance swipes.
+// Returns true if there's a mismatch (calendar total ≠ swipe total).
+const hasTotalTimeMismatch = (calendarTotal, swipeFirstJoin, swipeLastLeave) => {
+  const calSec = parseTimeToSeconds(calendarTotal);
+  if (calSec === null) return false;
+  const firstSec = isoToSeconds(swipeFirstJoin) ?? parseTimeToSeconds(swipeFirstJoin);
+  const lastSec = isoToSeconds(swipeLastLeave) ?? parseTimeToSeconds(swipeLastLeave);
+  if (firstSec === null || lastSec === null) return false;
+  const swipeDuration = lastSec - firstSec;
+  if (swipeDuration < 0) return false;
+  // Allow 5-minute tolerance
+  return Math.abs(calSec - swipeDuration) > 300;
+};
+
+// Map a calendar status string to a legend color + letter for rendering on the calendar.
+const STATUS_MAP = {
+  present:            { bg: '#22c55e', letter: 'P', label: 'Present' },
+  absent:             { bg: '#ef4444', letter: 'A', label: 'Absent' },
+  off_day:            { bg: '#94a3b8', letter: 'O', label: 'Off Day' },
+  offday:             { bg: '#94a3b8', letter: 'O', label: 'Off Day' },
+  rest_day:           { bg: '#64748b', letter: 'R', label: 'Rest Day' },
+  restday:            { bg: '#64748b', letter: 'R', label: 'Rest Day' },
+  leave:              { bg: '#f472b6', letter: 'L', label: 'Leave' },
+  on_duty:            { bg: '#fef08a', letter: 'OD', label: 'On Duty' },
+  onduty:             { bg: '#fef08a', letter: 'OD', label: 'On Duty' },
+  holiday:            { bg: '#93c5fd', letter: 'H', label: 'Holiday' },
+  alert:              { bg: '#f97316', letter: '!', label: 'Alert' },
+  deduction:          { bg: '#ef4444', letter: 'D', label: 'Deduction' },
+  alert_deduction:    { bg: '#f97316', letter: '!', label: 'Alert/Deduction' },
+  status_unknown:     { bg: '#dc2626', letter: '?', label: 'Unknown' },
+  overtime:           { bg: '#2563eb', letter: 'OT', label: 'Overtime' },
+  override:           { bg: '#16a34a', letter: 'OV', label: 'Override' },
+  permission:         { bg: '#86efac', letter: 'PM', label: 'Permission' },
+  ignored:            { bg: '#cbd5e1', letter: 'IG', label: 'Ignored' },
+  grace:              { bg: '#2dd4bf', letter: 'GR', label: 'Grace' },
+  // Leave types from leave_apply
+  planned_leave:      { bg: '#f472b6', letter: 'PL', label: 'Planned Leave' },
+  sick_leave:         { bg: '#f472b6', letter: 'SL', label: 'Sick Leave' },
+  casual_leave:       { bg: '#f472b6', letter: 'CL', label: 'Casual Leave' },
+  special_leave:      { bg: '#f472b6', letter: 'SP', label: 'Special Leave' },
+  work_from_home:     { bg: '#f472b6', letter: 'WFH', label: 'WFH' },
+  loss_of_pay:        { bg: '#f472b6', letter: 'LOP', label: 'Loss of Pay' },
+  // Regularization
+  regularization:     { bg: '#a78bfa', letter: 'RG', label: 'Regularization' },
+};
+
+const getStatusStyle = (status = '') => {
+  const key = String(status).trim().toLowerCase().replace(/\s+/g, '_');
+  return STATUS_MAP[key] || { bg: '#a78bfa', letter: '?', label: status || 'Unknown' };
+};
+
 export default function Calender() {
   const navigate = useNavigate();
   const calRef = useRef(null);
@@ -426,6 +515,7 @@ export default function Calender() {
   const [attendanceByDate, setAttendanceByDate] = useState({});
   const [showAllHolidays, setShowAllHolidays] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
+  const [calendarData, setCalendarData] = useState({}); // { 'YYYY-MM-DD': { status, first_in_time, total_hhmmss, ... } }
 
   // ── Deferred CSV state ──────────────────────────────────────────────
   const [pendingCsvFile, setPendingCsvFile] = useState(null);
@@ -453,6 +543,110 @@ export default function Calender() {
   const PENDING_PREVIEW_COUNT = 3;
   const visiblePending = showAllPending ? pendingRequests : pendingRequests.slice(0, PENDING_PREVIEW_COUNT);
   const hasMorePending = pendingRequests.length > PENDING_PREVIEW_COUNT;
+
+  // ── Build FullCalendar events from calendar data + holidays + alerts ─
+  const calendarEvents = useMemo(() => {
+    const events = [];
+
+    // 1) Calendar data entries (from calendar/{encodedEmail})
+    Object.entries(calendarData).forEach(([isoDate, entry]) => {
+      const status = String(entry.status || '').trim().toLowerCase();
+      const style = getStatusStyle(status);
+
+      // Check for alert/deduction: late arrival
+      const expectedStart = entry.expected_start || entry.grace_start || '09:00';
+      const expectedEnd = entry.expected_end || entry.grace_end || '11:00';
+      const isLate = isLateArrival(entry.first_in_time, expectedStart, expectedEnd);
+
+      // Check for total time mismatch with attendance swipes
+      const swipeData = attendanceByDate[isoDate];
+      const timeMismatch = hasTotalTimeMismatch(
+        entry.total_hhmmss || entry.total_time || entry.total,
+        swipeData?.first_join_time,
+        swipeData?.last_leave_time
+      );
+
+      // Determine the effective status to display
+      let effectiveStyle = style;
+      let alertNote = '';
+
+      if (isLate) {
+        effectiveStyle = { bg: '#f97316', letter: '!', label: 'Late Arrival' };
+        alertNote = 'Late arrival';
+      }
+      if (timeMismatch) {
+        effectiveStyle = { bg: '#ef4444', letter: 'D', label: 'Time Mismatch' };
+        alertNote = alertNote ? `${alertNote} + Time mismatch` : 'Time mismatch';
+      }
+      // If status itself is alert/deduction, keep it
+      if (status === 'alert' || status === 'deduction' || status === 'alert_deduction') {
+        effectiveStyle = style;
+      }
+
+      events.push({
+        id: `cal-${isoDate}`,
+        start: isoDate,
+        title: effectiveStyle.letter,
+        backgroundColor: effectiveStyle.bg,
+        borderColor: effectiveStyle.bg,
+        textColor: '#fff',
+        display: 'block',
+        extendedProps: {
+          type: 'calendar',
+          label: effectiveStyle.label,
+          status,
+          firstInTime: entry.first_in_time || '',
+          totalTime: entry.total_hhmmss || entry.total_time || entry.total || '',
+          alertNote,
+          isLate,
+          timeMismatch,
+        },
+      });
+
+      // If there's an alert AND a base status, add the alert as a second event
+      if ((isLate || timeMismatch) && status && status !== 'alert' && status !== 'deduction' && status !== 'alert_deduction') {
+        events.push({
+          id: `alert-${isoDate}`,
+          start: isoDate,
+          title: '!',
+          backgroundColor: isLate ? '#f97316' : '#ef4444',
+          borderColor: isLate ? '#f97316' : '#ef4444',
+          textColor: '#fff',
+          display: 'block',
+          classNames: ['cal-alert-badge'],
+          extendedProps: {
+            type: 'alert',
+            label: alertNote,
+          },
+        });
+      }
+    });
+
+    // 2) Holiday events (from holiday list) — only add if no calendar entry for that date
+    holidays.forEach((holiday) => {
+      const isoDate = holiday.startDate;
+      if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return;
+      // Don't override calendar data for the same date
+      if (calendarData[isoDate]) return;
+
+      events.push({
+        id: `holiday-${holiday.id}`,
+        start: isoDate,
+        title: 'H',
+        backgroundColor: '#93c5fd',
+        borderColor: '#93c5fd',
+        textColor: '#1e3a8a',
+        display: 'block',
+        extendedProps: {
+          type: 'holiday',
+          label: holiday.name || 'Holiday',
+          holidayName: holiday.name,
+        },
+      });
+    });
+
+    return events;
+  }, [calendarData, holidays, attendanceByDate]);
 
   useEffect(() => {
     const api = calRef.current?.getApi();
@@ -777,6 +971,96 @@ export default function Calender() {
     };
   }, [currentUserEncodedEmail]);
 
+  // ── Calendar data: calendar/{encodedEmail} ─────────────────────────
+  // Document may contain a `dates` map field or be structured as:
+  //   { dates: { "dd-mm-yyyy": { status, first_in_time, total_hhmmss, ... }, ... } }
+  // Or entries may be at the top level with date fields.
+  // Also checks a subcollection `dates` if the document field is empty.
+  useEffect(() => {
+    if (!currentUserEncodedEmail) {
+      setCalendarData({});
+      return undefined;
+    }
+
+    let subUnsub = null;
+    let disposed = false;
+
+    const docUnsub = onSnapshot(
+      doc(db, 'calendar', currentUserEncodedEmail),
+      (snapshot) => {
+        if (disposed) return;
+        if (!snapshot.exists()) {
+          setCalendarData({});
+          return;
+        }
+
+        const data = snapshot.data() || {};
+        const map = {};
+
+        // Case 1: dates is a map { "dd-mm-yyyy": { ... }, ... }
+        if (data.dates && typeof data.dates === 'object' && !Array.isArray(data.dates)) {
+          Object.entries(data.dates).forEach(([dateKey, entry]) => {
+            const iso = parseDdmmyyyy(dateKey) || dateKey;
+            map[iso] = { ...entry, _rawDate: dateKey };
+          });
+        }
+
+        // Case 2: dates is an array of objects with a `date` field
+        if (Array.isArray(data.dates)) {
+          data.dates.forEach((entry) => {
+            const rawDate = String(entry.date || '').trim();
+            const iso = parseDdmmyyyy(rawDate) || rawDate;
+            if (iso) map[iso] = { ...entry, _rawDate: rawDate };
+          });
+        }
+
+        // Case 3: top-level entries with date fields
+        if (Object.keys(map).length === 0) {
+          Object.entries(data).forEach(([key, value]) => {
+            if (key === 'dates' || key === 'email' || key === 'userId') return;
+            if (value && typeof value === 'object' && value.date) {
+              const iso = parseDdmmyyyy(value.date) || value.date;
+              if (iso) map[iso] = { ...value, _rawDate: value.date };
+            }
+          });
+        }
+
+        setCalendarData(map);
+
+        // Also try subcollection `dates` if the document didn't have entries
+        if (Object.keys(map).length === 0) {
+          subUnsub = onSnapshot(
+            collection(db, 'calendar', currentUserEncodedEmail, 'dates'),
+            (subSnap) => {
+              if (disposed) return;
+              const subMap = {};
+              subSnap.docs.forEach((d) => {
+                const entry = d.data();
+                const rawDate = String(entry.date || d.id || '').trim();
+                const iso = parseDdmmyyyy(rawDate) || rawDate;
+                if (iso) subMap[iso] = { ...entry, _rawDate: rawDate };
+              });
+              if (Object.keys(subMap).length > 0) {
+                setCalendarData(subMap);
+              }
+            },
+            () => {} // ignore subcollection errors silently
+          );
+        }
+      },
+      (error) => {
+        console.error('Unable to load calendar data:', error);
+        setCalendarData({});
+      }
+    );
+
+    return () => {
+      disposed = true;
+      docUnsub();
+      if (subUnsub) subUnsub();
+    };
+  }, [currentUserEncodedEmail]);
+
   // Holiday list: read from Firestore holiday_list/{year} (fallback to the static list).
   useEffect(() => {
     return onSnapshot(
@@ -1030,6 +1314,15 @@ export default function Calender() {
         .holiday-scroll::-webkit-scrollbar-track { background: transparent; }
         .holiday-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
         .holiday-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .cal-event-badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; font-size: 9px; font-weight: 700; line-height: 1; margin: 1px 0; }
+        .cal-event-badge span { color: #fff; }
+        .cal-day-cell { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+        .cal-day-number { font-size: 11px; }
+        .cal-alert-dot { width: 6px; height: 6px; border-radius: 50%; background: #f97316; flex-shrink: 0; animation: pulse-alert 1.5s ease-in-out infinite; }
+        @keyframes pulse-alert { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .fc-daygrid-event { border: none !important; padding: 0 !important; margin: 0 !important; }
+        .fc-daygrid-event-harness { margin: 0 !important; }
+        .cal-alert-badge { margin-left: 2px !important; }
       `}</style>
 
       <div className="min-h-screen w-full bg-slate-100 p-3 sm:p-4 lg:p-5">
@@ -1060,7 +1353,42 @@ export default function Calender() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Schedule</span>
                 <button onClick={() => calRef.current?.getApi().today()} className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600 transition-colors hover:bg-blue-100">Today</button>
               </div>
-              <FullCalendar ref={calRef} plugins={[dayGridPlugin, interactionPlugin]} initialView="dayGridMonth" selectable select={handleDateSelect} unselectAuto={false} height="auto" handleWindowResize headerToolbar={{ left: 'prev', center: 'title', right: 'next' }} />
+              <FullCalendar
+                ref={calRef}
+                plugins={[dayGridPlugin, interactionPlugin]}
+                initialView="dayGridMonth"
+                selectable
+                select={handleDateSelect}
+                unselectAuto={false}
+                height="auto"
+                handleWindowResize
+                headerToolbar={{ left: 'prev', center: 'title', right: 'next' }}
+                events={calendarEvents}
+                eventContent={(arg) => {
+                  const props = arg.event.extendedProps;
+                  const bg = arg.event.backgroundColor || '#a78bfa';
+                  const letter = arg.event.title || '?';
+                  return (
+                    <div className="cal-event-badge" style={{ background: bg }} title={props.label || ''}>
+                      <span>{letter}</span>
+                    </div>
+                  );
+                }}
+                dayCellContent={(arg) => {
+                  const isoDate = `${arg.date.getFullYear()}-${String(arg.date.getMonth() + 1).padStart(2, '0')}-${String(arg.date.getDate()).padStart(2, '0')}`;
+                  const calEntry = calendarData[isoDate];
+                  const hasAlert = calEntry && (
+                    isLateArrival(calEntry.first_in_time, calEntry.expected_start || '09:00', calEntry.expected_end || '11:00') ||
+                    hasTotalTimeMismatch(calEntry.total_hhmmss || calEntry.total_time, attendanceByDate[isoDate]?.first_join_time, attendanceByDate[isoDate]?.last_leave_time)
+                  );
+                  return (
+                    <div className="cal-day-cell">
+                      <span className="cal-day-number">{arg.dayNumberText}</span>
+                      {hasAlert && <span className="cal-alert-dot" />}
+                    </div>
+                  );
+                }}
+              />
             </div>
 
             {/* Legends (collapsible) */}
