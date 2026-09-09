@@ -18,6 +18,30 @@ import HistoryList from './leave_history';
 const encodeEmail = (email = '') =>
   String(email).trim().toLowerCase().replace(/\./g, '_');
 
+const resolveDocTime = (data = {}) => {
+  const t = data.createdAt ?? data.timestamp;
+  if (t === null) return Date.now();
+  if (!t) return 0;
+  if (typeof t.toMillis === 'function') return t.toMillis();
+  if (typeof t.seconds === 'number') return t.seconds * 1000;
+  if (typeof t === 'number') return t;
+  if (typeof t === 'string') {
+    const ms = new Date(t).getTime();
+    return isNaN(ms) ? 0 : ms;
+  }
+  return 0;
+};
+
+const countDays = (from = '', to = '') => {
+  if (!from || !to) return 0;
+  const d1 = new Date(from);
+  const d2 = new Date(to);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
+  const diffTime = d2.getTime() - d1.getTime();
+  if (diffTime < 0) return 0;
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+};
+
 const LEAVE_TYPE_KEYS = {
   'Planned Leave': 'plannedLeave',
   'Sick Leave': 'sickLeave',
@@ -28,11 +52,11 @@ const LEAVE_TYPE_KEYS = {
 };
 
 const INITIAL_LEAVE_BALANCES = {
-  plannedLeave: 0,
-  sickLeave: 0,
-  casualLeave: 0,
+  plannedLeave: 3,
+  sickLeave: 3,
+  casualLeave: 3,
   specialLeave: 0,
-  workFromHome: 0,
+  workFromHome: 3,
   lossOfPay: 0,
 };
 
@@ -253,6 +277,10 @@ const LeaveManagement = () => {
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
+  const [zeroBalanceModal, setZeroBalanceModal] = useState({
+    isOpen: false,
+    leaveTypeLabel: '',
+  });
   const fileInputRef = useRef(null);
 
   const [leaveBalances, setLeaveBalances] = useState(
@@ -263,6 +291,15 @@ const LeaveManagement = () => {
       consumed: 0,
     }))
   );
+
+  // --- Helper to get available balance for a leave type ---
+  const getLeaveBalance = (labelOrKey) => {
+    if (!labelOrKey) return 0;
+    const found = leaveBalances.find(
+      (b) => b.title === labelOrKey || b.key === labelOrKey || LEAVE_TYPE_KEYS[b.title] === labelOrKey
+    );
+    return found ? Number(found.total) || 0 : 0;
+  };
 
   // --- Fetch leave balances: leave/{encodedEmail}/balance/{autoId} ---
   useEffect(() => {
@@ -284,14 +321,8 @@ const LeaveManagement = () => {
         }
 
         const docs = [...snapshot.docs].sort((a, b) => {
-          const aData = a.data();
-          const bData = b.data();
-          const aTime =
-            aData.createdAt?.toMillis?.() ?? aData.createdAt?.seconds ??
-            aData.timestamp?.toMillis?.() ?? aData.timestamp?.seconds ?? 0;
-          const bTime =
-            bData.createdAt?.toMillis?.() ?? bData.createdAt?.seconds ??
-            bData.timestamp?.toMillis?.() ?? bData.timestamp?.seconds ?? 0;
+          const aTime = resolveDocTime(a.data());
+          const bTime = resolveDocTime(b.data());
           if (aTime !== bTime) return bTime - aTime;
           return b.id.localeCompare(a.id);
         });
@@ -360,6 +391,17 @@ const LeaveManagement = () => {
       setSubmitMessage('Please select a leave type.');
       return;
     }
+
+    const availableBalance = getLeaveBalance(leaveType);
+    if (availableBalance <= 0) {
+      setZeroBalanceModal({
+        isOpen: true,
+        leaveTypeLabel: leaveType,
+      });
+      setSubmitMessage(`${leaveType} is not available. You have 0 balance.`);
+      return;
+    }
+
     if (!dateRange.from || !dateRange.to) {
       setSubmitMessage('Please select both From and To dates.');
       return;
@@ -368,6 +410,15 @@ const LeaveManagement = () => {
       setSubmitMessage('From date cannot be after To date.');
       return;
     }
+
+    const requestedDays = countDays(dateRange.from, dateRange.to);
+    if (requestedDays > availableBalance) {
+      setSubmitMessage(
+        `Insufficient balance. You have ${availableBalance} day${availableBalance === 1 ? '' : 's'} available for ${leaveType}, but requested ${requestedDays} day${requestedDays === 1 ? '' : 's'}.`
+      );
+      return;
+    }
+
     if (!encodedEmail) {
       setSubmitMessage('You must be signed in to apply for leave.');
       return;
@@ -609,10 +660,11 @@ const LeaveManagement = () => {
                 <div className="hidden lg:block h-7 mb-2" />
                 <div className="relative">
                   <button
+                    type="button"
                     onClick={() => setShowDropdown(!showDropdown)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-white"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-white shadow-sm hover:border-gray-300 transition"
                   >
-                    <span className={leaveType ? 'text-gray-900' : 'text-gray-400'}>
+                    <span className={leaveType ? 'text-gray-900 font-medium' : 'text-gray-400'}>
                       {leaveType || 'Select Leave Type'}
                     </span>
                     <ChevronDown size={16} className="text-gray-400" />
@@ -621,19 +673,53 @@ const LeaveManagement = () => {
                   {showDropdown && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
-                      <div className="absolute z-20 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl py-1 max-h-60 overflow-auto">
-                        {LEAVE_TYPE_LIST.map((type) => (
-                          <div
-                            key={type.key}
-                            onClick={() => {
-                              setLeaveType(type.label);
-                              setShowDropdown(false);
-                            }}
-                            className="px-4 py-2.5 text-sm text-gray-700 hover:bg-sky-50 cursor-pointer transition"
-                          >
-                            {type.label}
-                          </div>
-                        ))}
+                      <div className="absolute z-20 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl py-1 max-h-64 overflow-auto animate-in fade-in slide-in-from-top-1 duration-150">
+                        {LEAVE_TYPE_LIST.map((type) => {
+                          const balance = getLeaveBalance(type.key);
+                          const isZero = balance <= 0;
+                          return (
+                            <div
+                              key={type.key}
+                              onClick={() => {
+                                if (isZero) {
+                                  setShowDropdown(false);
+                                  setZeroBalanceModal({
+                                    isOpen: true,
+                                    leaveTypeLabel: type.label,
+                                  });
+                                } else {
+                                  setLeaveType(type.label);
+                                  setShowDropdown(false);
+                                  setSubmitMessage('');
+                                }
+                              }}
+                              className={`px-4 py-2.5 text-sm flex items-center justify-between transition cursor-pointer ${
+                                isZero
+                                  ? 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                                  : 'text-gray-700 hover:bg-sky-50'
+                              }`}
+                            >
+                              <span
+                                className={
+                                  isZero
+                                    ? 'font-medium text-gray-400 line-through opacity-75'
+                                    : 'text-gray-800 font-medium'
+                                }
+                              >
+                                {type.label}
+                              </span>
+                              <span
+                                className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                                  isZero
+                                    ? 'bg-red-100 text-red-600 border border-red-200'
+                                    : 'bg-sky-100 text-sky-700'
+                                }`}
+                              >
+                                {isZero ? '0 Available' : `${balance} available`}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </>
                   )}
@@ -685,6 +771,48 @@ const LeaveManagement = () => {
           </div>
         )}
       </div>
+
+      {/* ================= ZERO BALANCE POPUP MODAL ================= */}
+      {zeroBalanceModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0">
+                  <Info size={20} />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">
+                  {zeroBalanceModal.leaveTypeLabel} Not Available
+                </h3>
+              </div>
+              <button
+                onClick={() => setZeroBalanceModal({ isOpen: false, leaveTypeLabel: '' })}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="py-2 text-sm space-y-1.5 font-medium leading-relaxed bg-amber-50/60 p-4 rounded-xl border border-amber-100">
+              <p className="text-gray-900 font-semibold">
+                {zeroBalanceModal.leaveTypeLabel} is not available.
+              </p>
+              <p className="text-gray-600">
+                You have already used all your {zeroBalanceModal.leaveTypeLabel} balance.
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setZeroBalanceModal({ isOpen: false, leaveTypeLabel: '' })}
+                className="px-6 py-2 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

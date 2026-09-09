@@ -64,6 +64,20 @@ const resolveMs = (value) => {
   return 0;
 };
 
+const resolveDocTime = (data = {}) => {
+  const t = data.createdAt ?? data.timestamp;
+  if (t === null) return Date.now();
+  if (!t) return 0;
+  if (typeof t.toMillis === 'function') return t.toMillis();
+  if (typeof t.seconds === 'number') return t.seconds * 1000;
+  if (typeof t === 'number') return t;
+  if (typeof t === 'string') {
+    const ms = new Date(t).getTime();
+    return isNaN(ms) ? 0 : ms;
+  }
+  return 0;
+};
+
 const timeAgo = (value) => {
   const ms = resolveMs(value);
   if (!ms) return '';
@@ -270,9 +284,9 @@ export default function AdminPage() {
       snap.docs.forEach((d) => {
         const enc = d.ref.parent.parent?.path?.split('/').pop() || '';
         const data = d.data();
-        // Keep the latest per user (by doc ID, chronological)
-        if (!map[enc] || d.id > (map[enc]._docId || '')) {
-          map[enc] = { ...data, _docId: d.id };
+        const docTime = resolveDocTime(data);
+        if (!map[enc] || docTime > (map[enc]._docTime || 0)) {
+          map[enc] = { ...data, _docId: d.id, _docTime: docTime };
         }
       });
       setBalances(map);
@@ -574,15 +588,18 @@ export default function AdminPage() {
   const handleDecision = async (request, action) => {
     if (!request?._ref) return;
     try {
+      const isAlreadyApproved = String(request.status || '').toLowerCase() === 'approved' || Boolean(request.deducted);
+
       // Update the request status
       await updateDoc(request._ref, {
         status: action,
+        ...(action === 'approved' && !isAlreadyApproved ? { deducted: true, deductedAt: new Date().toISOString() } : {}),
         decidedBy: currentUserEmail,
         decidedAt: new Date().toISOString(),
       });
 
-      // If approving a LEAVE request, deduct from the user's balance
-      if (action === 'approved' && request._category === 'Leave') {
+      // If approving a LEAVE request for the FIRST time, deduct from the user's balance
+      if (action === 'approved' && request._category === 'Leave' && !isAlreadyApproved) {
         const leaveType = request.leaveType || request.leaveTypeKey || '';
         const balanceKey = resolveBalanceKey(leaveType);
         const userEnc = request._encodedEmail;
@@ -593,10 +610,8 @@ export default function AdminPage() {
           const toDate = request.toDate || request.to_date || request.endDate || '';
           const days = countDays(fromDate, toDate) || 1;
 
-          // Read the latest balance document
-          const balSnap = await getDocs(
-            query(collection(db, 'leave', userEnc, 'balance'), orderBy('__name__', 'desc'), limit(1))
-          );
+          // Read all balance documents for the user to reliably get the latest
+          const balSnap = await getDocs(collection(db, 'leave', userEnc, 'balance'));
 
           let currentBalances = {
             plannedLeave: 3,
@@ -608,8 +623,16 @@ export default function AdminPage() {
           };
 
           if (!balSnap.empty) {
-            const latest = balSnap.docs[0].data();
+            const docs = [...balSnap.docs].sort((a, b) => {
+              const aTime = resolveDocTime(a.data());
+              const bTime = resolveDocTime(b.data());
+              if (aTime !== bTime) return bTime - aTime;
+              return b.id.localeCompare(a.id);
+            });
+
+            const latest = docs[0].data();
             currentBalances = {
+              ...latest,
               plannedLeave: latest.plannedLeave ?? 3,
               sickLeave: latest.sickLeave ?? 3,
               casualLeave: latest.casualLeave ?? 3,
@@ -619,15 +642,17 @@ export default function AdminPage() {
             };
           }
 
-          // Deduct
+          // Deduct exact number of approved days (non-negative floor)
           const currentValue = currentBalances[balanceKey] ?? 0;
           const newValue = Math.max(0, currentValue - days);
+          const currentConsumed = currentBalances[`${balanceKey}Consumed`] ?? currentBalances[`${balanceKey}_consumed`] ?? 0;
+          const newConsumed = currentConsumed + days;
 
           // Save a new balance document (preserves history)
           await addDoc(collection(db, 'leave', userEnc, 'balance'), {
             ...currentBalances,
             [balanceKey]: newValue,
-            [`${balanceKey}Consumed`]: (currentBalances[`${balanceKey}Consumed`] ?? 0) + days,
+            [`${balanceKey}Consumed`]: newConsumed,
             createdAt: serverTimestamp(),
             updatedBy: currentUserEmail,
             reason: `Approved ${leaveType} (${days} day${days !== 1 ? 's' : ''}) — deducted from balance`,

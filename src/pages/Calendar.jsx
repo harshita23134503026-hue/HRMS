@@ -193,6 +193,20 @@ const getMemberName = (member = {}) => member.name || member.fullName || member.
 const getRequestStatus = (request = {}) => String(request.status ?? request.leave_status ?? request.requestStatus ?? request.approvalStatus ?? '').trim().toLowerCase();
 const isPendingRequest = (request = {}) => getRequestStatus(request) === 'pending';
 
+const resolveDocTime = (data = {}) => {
+  const t = data.createdAt ?? data.timestamp;
+  if (t === null) return Date.now();
+  if (!t) return 0;
+  if (typeof t.toMillis === 'function') return t.toMillis();
+  if (typeof t.seconds === 'number') return t.seconds * 1000;
+  if (typeof t === 'number') return t;
+  if (typeof t === 'string') {
+    const ms = new Date(t).getTime();
+    return isNaN(ms) ? 0 : ms;
+  }
+  return 0;
+};
+
 // "2026-08-20T22:57:43+05:30" -> "10:57:43 pm"
 const formatSessionTime = (iso = '') => {
   if (!iso) return '—';
@@ -745,20 +759,9 @@ export default function Calender() {
         // Sort documents to find the latest one.
         // Prefer a createdAt / timestamp field; fall back to doc ID ordering.
         const docs = [...snapshot.docs].sort((a, b) => {
-          const aData = a.data();
-          const bData = b.data();
-          const aTime = aData.createdAt?.toMillis?.()
-            ?? aData.createdAt?.seconds
-            ?? aData.timestamp?.toMillis?.()
-            ?? aData.timestamp?.seconds
-            ?? 0;
-          const bTime = bData.createdAt?.toMillis?.()
-            ?? bData.createdAt?.seconds
-            ?? bData.timestamp?.toMillis?.()
-            ?? bData.timestamp?.seconds
-            ?? 0;
-          if (aTime !== bTime) return bTime - aTime; // descending (latest first)
-          // Fall back to doc ID comparison (auto-IDs are chronological)
+          const aTime = resolveDocTime(a.data());
+          const bTime = resolveDocTime(b.data());
+          if (aTime !== bTime) return bTime - aTime;
           return b.id.localeCompare(a.id);
         });
 
